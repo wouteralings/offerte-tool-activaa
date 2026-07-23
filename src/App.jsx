@@ -203,7 +203,9 @@ export default function OffertetoolApp() {
 
   const [afzender, setAfzender] = useState({
     bedrijf: "Onze Firma B.V.",
-    adres: "Handelskade 12, 3011 CV Rotterdam",
+    adres: "Handelskade 12",
+    postcode: "3011 CV",
+    plaats: "Rotterdam",
     kvk: "84120933",
     ondertekenaar: MOCK_USER.naam,
     geldigheid: "30",
@@ -1095,8 +1097,18 @@ export default function OffertetoolApp() {
                 </div>
               </div>
               <div>
-                <label className="ot-label">Adres</label>
+                <label className="ot-label">Adres (straat en huisnummer)</label>
                 <input className="ot-input" value={afzender.adres} onChange={(e) => setAfzender({ ...afzender, adres: e.target.value })} />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 16 }}>
+                <div>
+                  <label className="ot-label">Postcode</label>
+                  <input className="ot-input" value={afzender.postcode} onChange={(e) => setAfzender({ ...afzender, postcode: e.target.value })} />
+                </div>
+                <div>
+                  <label className="ot-label">Plaats</label>
+                  <input className="ot-input" value={afzender.plaats} onChange={(e) => setAfzender({ ...afzender, plaats: e.target.value })} />
+                </div>
               </div>
               <div>
                 <label className="ot-label">Ondertekenaar</label>
@@ -1812,6 +1824,7 @@ export default function OffertetoolApp() {
                   <div style={{ textAlign: "right", fontSize: 12.5, color: "#5B6259", lineHeight: 1.5, marginBottom: 32 }}>
                     <div style={{ fontWeight: 700, color: "#1C2321" }}>{afzender.bedrijf}</div>
                     <div>{afzender.adres}</div>
+                    <div>{afzender.postcode} {afzender.plaats}</div>
                     <div>KvK {afzender.kvk}</div>
                   </div>
 
