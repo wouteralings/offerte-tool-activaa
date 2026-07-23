@@ -180,6 +180,13 @@ function currency(n) {
   }).format(n);
 }
 
+function klantAdresRegels(klant) {
+  const nummerDeel = `${klant.huisnummer || ""}${klant.huisnummertoevoeging || ""}`.trim();
+  const straatRegel = [klant.straat, nummerDeel].filter(Boolean).join(" ");
+  const plaatsRegel = [klant.postcode, klant.plaats].filter(Boolean).join(" ");
+  return [straatRegel, plaatsRegel].filter(Boolean);
+}
+
 function genereerStandaardLogo(bedrijfsnaam) {
   const initialen = (bedrijfsnaam || "OF")
     .split(/\s+/)
@@ -499,16 +506,41 @@ export default function OffertetoolApp() {
     })();
   }, [standaardTeksten, tekstenGeladen]);
 
+  // Klanten ophalen bij de eigen Dynamics-koppeling (Azure Function op /api/klanten).
+  // Lukt dit niet (nog niet geconfigureerd, lokale ontwikkeling, of een fout) dan valt
+  // de tool terug op de voorbeeldklanten, zodat de tool altijd blijft werken.
+  const [klantenBron, setKlantenBron] = useState(MOCK_KLANTEN);
+  const [klantenUitDynamics, setKlantenUitDynamics] = useState(false);
+
+  useEffect(() => {
+    let actief = true;
+    fetch("/api/klanten")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!actief) return;
+        if (Array.isArray(data) && data.length > 0) {
+          setKlantenBron(data);
+          setKlantenUitDynamics(true);
+        }
+      })
+      .catch(() => {
+        // API nog niet beschikbaar/geconfigureerd — voorbeelddata blijft dan gewoon staan
+      });
+    return () => {
+      actief = false;
+    };
+  }, []);
+
   const gefilterdeKlanten = useMemo(() => {
     const q = zoekKlant.trim().toLowerCase();
-    if (!q) return MOCK_KLANTEN;
-    return MOCK_KLANTEN.filter(
+    if (!q) return klantenBron;
+    return klantenBron.filter(
       (k) =>
         k.naam.toLowerCase().includes(q) ||
-        k.plaats.toLowerCase().includes(q) ||
-        k.segment.toLowerCase().includes(q)
+        (k.plaats || "").toLowerCase().includes(q) ||
+        (k.segment || "").toLowerCase().includes(q)
     );
-  }, [zoekKlant]);
+  }, [zoekKlant, klantenBron]);
 
   function dienstById(id) {
     return dienstenCatalogus.find((d) => d.id === id);
@@ -1374,12 +1406,28 @@ export default function OffertetoolApp() {
             titel="Selecteer klanten"
             toelichting="Klanten worden opgehaald uit Dynamics op basis van uw rechten. U kunt er meerdere kiezen — er wordt dan per klant een aparte offerte gemaakt met dezelfde diensten."
           >
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 11.5,
+                fontWeight: 600,
+                padding: "4px 10px",
+                borderRadius: 20,
+                marginBottom: 14,
+                background: klantenUitDynamics ? "#EAF2F8" : "#FBF2EC",
+                color: klantenUitDynamics ? "#1C5D8C" : "#B14A2E",
+              }}
+            >
+              {klantenUitDynamics ? "● Live data uit Dynamics" : "● Voorbeelddata (Dynamics nog niet gekoppeld)"}
+            </div>
             <div style={{ position: "relative", marginBottom: 16 }}>
               <Search size={16} style={{ position: "absolute", left: 12, top: 12, color: "#8A9089" }} />
               <input
                 className="ot-input"
                 style={{ paddingLeft: 36 }}
-                placeholder="Zoek op klantnaam, plaats of segment…"
+                placeholder="Zoek op klantnaam, plaats of klantgroep…"
                 value={zoekKlant}
                 onChange={(e) => setZoekKlant(e.target.value)}
               />
@@ -1411,8 +1459,9 @@ export default function OffertetoolApp() {
             )}
 
             <div style={{ display: "grid", gap: 10 }}>
-              {gefilterdeKlanten.map((k) => {
+              {gefilterdeKlanten.slice(0, 10).map((k) => {
                 const actief = gekozenKlanten.some((x) => x.id === k.id);
+                const metaDelen = [k.contact, k.plaats, k.segment].filter(Boolean);
                 return (
                   <button
                     key={k.id}
@@ -1449,14 +1498,21 @@ export default function OffertetoolApp() {
                       </div>
                       <div>
                         <div style={{ fontWeight: 700, fontSize: 14.5 }}>{k.naam}</div>
-                        <div style={{ fontSize: 12.5, color: "#5B6259", marginTop: 2 }}>
-                          {k.contact} · {k.plaats} · {k.segment}
-                        </div>
+                        {metaDelen.length > 0 && (
+                          <div style={{ fontSize: 12.5, color: "#5B6259", marginTop: 2 }}>
+                            {metaDelen.join(" · ")}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </button>
                 );
               })}
+              {gefilterdeKlanten.length > 10 && (
+                <div style={{ textAlign: "center", padding: "10px 4px", color: "#8A9089", fontSize: 12.5 }}>
+                  {gefilterdeKlanten.length - 10} meer klant{gefilterdeKlanten.length - 10 > 1 ? "en" : ""} gevonden — verfijn uw zoekopdracht om ze te zien.
+                </div>
+              )}
               {gefilterdeKlanten.length === 0 && (
                 <div style={{ textAlign: "center", padding: 30, color: "#8A9089", fontSize: 13.5 }}>
                   Geen klanten gevonden voor "{zoekKlant}".
@@ -1880,7 +1936,9 @@ export default function OffertetoolApp() {
                       <div className="ot-label">Aan</div>
                       <div style={{ fontWeight: 700, fontSize: 14.5 }}>{klant.naam}</div>
                       <div style={{ fontSize: 13, color: "#5B6259" }}>{klant.contact}</div>
-                      <div style={{ fontSize: 13, color: "#5B6259" }}>{klant.plaats}</div>
+                      {klantAdresRegels(klant).map((regel, i) => (
+                        <div key={i} style={{ fontSize: 13, color: "#5B6259" }}>{regel}</div>
+                      ))}
                       <div style={{ fontSize: 13, color: "#5B6259" }}>{klant.email}</div>
                     </div>
                     <div>

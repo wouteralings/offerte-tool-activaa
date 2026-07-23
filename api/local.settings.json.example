@@ -1,0 +1,10 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+    "DYNAMICS_TENANT_ID": "<tenant-id uit de App Registration>",
+    "DYNAMICS_CLIENT_ID": "<client/application-id uit de App Registration>",
+    "DYNAMICS_CLIENT_SECRET": "<client secret uit de App Registration>",
+    "DYNAMICS_RESOURCE_URL": "https://jouworganisatie.crm4.dynamics.com"
+  }
+}
