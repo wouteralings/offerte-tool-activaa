@@ -201,6 +201,48 @@ export default function OffertetoolApp() {
   const [ingelogd, setIngelogd] = useState(false);
   const [bezigMetInloggen, setBezigMetInloggen] = useState(false);
 
+  // Echte ingelogde gebruiker ophalen bij Azure Static Web Apps (werkt alleen op de live site,
+  // niet in lokale ontwikkeling — daar valt de tool terug op de gesimuleerde inlogknop).
+  const [echteGebruiker, setEchteGebruiker] = useState(null);
+  const [authGecontroleerd, setAuthGecontroleerd] = useState(false);
+
+  useEffect(() => {
+    let actief = true;
+    fetch("/.auth/me")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!actief) return;
+        const principal = data?.clientPrincipal;
+        if (principal?.userDetails) {
+          const naam = principal.userDetails;
+          setEchteGebruiker({
+            naam,
+            email: naam,
+            rol: "Ingelogd via Microsoft",
+            initialen: naam
+              .split(/[.\s@]/)
+              .filter(Boolean)
+              .slice(0, 2)
+              .map((w) => w[0].toUpperCase())
+              .join(""),
+          });
+          setIngelogd(true);
+          setStap((huidige) => (huidige === "login" ? "instellingen" : huidige));
+        }
+      })
+      .catch(() => {
+        // /.auth/me bestaat niet (bijv. lokale ontwikkeling) — dan blijft de gesimuleerde login werken
+      })
+      .finally(() => {
+        if (actief) setAuthGecontroleerd(true);
+      });
+    return () => {
+      actief = false;
+    };
+  }, []);
+
+  const huidigeGebruiker = echteGebruiker || MOCK_USER;
+
   const [afzender, setAfzender] = useState({
     bedrijf: "Onze Firma B.V.",
     adres: "Handelskade 12",
@@ -863,8 +905,8 @@ export default function OffertetoolApp() {
           {ingelogd && (
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>{MOCK_USER.naam}</div>
-                <div style={{ fontSize: 11.5, color: "#8A9089" }}>{MOCK_USER.rol}</div>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{huidigeGebruiker.naam}</div>
+                <div style={{ fontSize: 11.5, color: "#8A9089" }}>{huidigeGebruiker.rol}</div>
               </div>
               <div
                 style={{
@@ -880,7 +922,7 @@ export default function OffertetoolApp() {
                   justifyContent: "center",
                 }}
               >
-                {MOCK_USER.initialen}
+                {huidigeGebruiker.initialen}
               </div>
               <button
                 onClick={uitloggen}
@@ -983,7 +1025,12 @@ export default function OffertetoolApp() {
 
       <div style={{ maxWidth: 1040, margin: "0 auto", padding: "36px 24px 60px" }}>
         {/* -------------------- LOGIN -------------------- */}
-        {stap === "login" && (
+        {stap === "login" && !authGecontroleerd && (
+          <div style={{ display: "flex", justifyContent: "center", paddingTop: 80, color: "#8A9089", fontSize: 13.5 }}>
+            Bezig met inloggen controleren…
+          </div>
+        )}
+        {stap === "login" && authGecontroleerd && (
           <div style={{ display: "flex", justifyContent: "center", paddingTop: 40 }}>
             <div className="ot-card" style={{ width: 420, padding: 36, textAlign: "center" }}>
               <div
@@ -1839,7 +1886,7 @@ export default function OffertetoolApp() {
                     <div>
                       <div className="ot-label">Namens</div>
                       <div style={{ fontWeight: 700, fontSize: 14.5 }}>{afzender.ondertekenaar}</div>
-                      <div style={{ fontSize: 13, color: "#5B6259" }}>{MOCK_USER.email}</div>
+                      <div style={{ fontSize: 13, color: "#5B6259" }}>{huidigeGebruiker.email}</div>
                     </div>
                   </div>
 
