@@ -511,20 +511,34 @@ export default function OffertetoolApp() {
   // de tool terug op de voorbeeldklanten, zodat de tool altijd blijft werken.
   const [klantenBron, setKlantenBron] = useState(MOCK_KLANTEN);
   const [klantenUitDynamics, setKlantenUitDynamics] = useState(false);
+  const [klantenFoutmelding, setKlantenFoutmelding] = useState(null);
 
   useEffect(() => {
     let actief = true;
     fetch("/api/klanten")
-      .then((res) => (res.ok ? res.json() : null))
+      .then(async (res) => {
+        if (res.ok) return res.json();
+        const foutdata = await res.json().catch(() => null);
+        throw new Error(foutdata?.detail || foutdata?.error || `HTTP ${res.status}`);
+      })
       .then((data) => {
         if (!actief) return;
         if (Array.isArray(data) && data.length > 0) {
           setKlantenBron(data);
           setKlantenUitDynamics(true);
+          setKlantenFoutmelding(null);
+        } else {
+          setKlantenFoutmelding("Dynamics gaf een lege lijst terug (0 klanten).");
         }
       })
-      .catch(() => {
-        // API nog niet beschikbaar/geconfigureerd — voorbeelddata blijft dan gewoon staan
+      .catch((err) => {
+        if (!actief) return;
+        // API niet bereikbaar (bijv. lokale ontwikkeling) geeft een generieke fetch-fout —
+        // dat tonen we niet als "fout", want dat is normaal. Een fout mét inhoud (vanuit
+        // onze eigen Azure Function) tonen we wél, want die is nuttig om te debuggen.
+        if (err.message && err.message !== "Failed to fetch") {
+          setKlantenFoutmelding(err.message);
+        }
       });
     return () => {
       actief = false;
@@ -1422,6 +1436,24 @@ export default function OffertetoolApp() {
             >
               {klantenUitDynamics ? "● Live data uit Dynamics" : "● Voorbeelddata (Dynamics nog niet gekoppeld)"}
             </div>
+            {klantenFoutmelding && (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "#B14A2E",
+                  background: "#FBF2EC",
+                  border: "1px solid #E2C4B0",
+                  borderRadius: 8,
+                  padding: "8px 12px",
+                  marginTop: -6,
+                  marginBottom: 14,
+                  fontFamily: "ui-monospace, monospace",
+                  wordBreak: "break-word",
+                }}
+              >
+                <strong>Foutmelding Dynamics-koppeling:</strong> {klantenFoutmelding}
+              </div>
+            )}
             <div style={{ position: "relative", marginBottom: 16 }}>
               <Search size={16} style={{ position: "absolute", left: 12, top: 12, color: "#8A9089" }} />
               <input
