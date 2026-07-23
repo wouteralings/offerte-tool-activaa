@@ -43,7 +43,7 @@ module.exports = async function (context, req) {
   if (!resource) {
     context.res = {
       status: 501,
-      jsonBody: {
+      body: {
         error: "Dynamics-koppeling is nog niet geconfigureerd. Zie README voor de benodigde Application Settings.",
       },
     };
@@ -77,7 +77,8 @@ module.exports = async function (context, req) {
       context.log.error("Dynamics-fout:", tekst);
       context.res = {
         status: 502,
-        jsonBody: { error: "Ophalen bij Dynamics is mislukt.", detail: tekst },
+        headers: { "Content-Type": "application/json" },
+        body: { error: "Ophalen bij Dynamics is mislukt.", detail: tekst },
       };
       return;
     }
@@ -102,19 +103,21 @@ module.exports = async function (context, req) {
       };
     });
 
-    context.res = { jsonBody: klanten };
+    context.res = { headers: { "Content-Type": "application/json" }, body: klanten };
   } catch (err) {
     if (err.message === "MISSING_CONFIG") {
       context.res = {
         status: 501,
-        jsonBody: { error: "Dynamics-koppeling is nog niet volledig geconfigureerd." },
+        headers: { "Content-Type": "application/json" },
+        body: { error: "Dynamics-koppeling is nog niet volledig geconfigureerd." },
       };
       return;
     }
     context.log.error(err);
     context.res = {
       status: 500,
-      jsonBody: { error: "Onverwachte fout bij ophalen klanten.", detail: String(err) },
+      headers: { "Content-Type": "application/json" },
+      body: { error: "Onverwachte fout bij ophalen klanten.", detail: String(err) },
     };
   }
 };
