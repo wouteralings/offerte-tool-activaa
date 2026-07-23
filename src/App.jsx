@@ -316,6 +316,9 @@ export default function OffertetoolApp() {
   const [klantVarianten, setKlantVarianten] = useState({});
   // aangepastePrijzen: "klantId::dienstId" -> handmatige prijs (string of number)
   const [aangepastePrijzen, setAangepastePrijzen] = useState({});
+  // uitgeschakeldVoorKlant: "klantId::dienstId" -> true als deze dienst voor déze klant uitstaat,
+  // terwijl hij voor andere klanten wel meegenomen wordt
+  const [uitgeschakeldVoorKlant, setUitgeschakeldVoorKlant] = useState({});
   // bijlageToelichtingen: "dienstId" -> vrije tekst voor de gezamenlijke bijlage
   const [bijlageToelichtingen, setBijlageToelichtingen] = useState({});
   // algemeneToelichting: vrije tekst die los van een specifieke dienst in de bijlage komt
@@ -492,6 +495,28 @@ export default function OffertetoolApp() {
       return next;
     });
     wisPrijsOverridesVoorDienst(dienst.id);
+    wisUitschakelingenVoorDienst(dienst.id);
+  }
+
+  function isUitgeschakeldVoorKlant(klantId, dienstId) {
+    return !!uitgeschakeldVoorKlant[prijsSleutel(klantId, dienstId)];
+  }
+
+  function toggleDienstVoorKlant(klantId, dienstId) {
+    setUitgeschakeldVoorKlant((prev) => {
+      const key = prijsSleutel(klantId, dienstId);
+      return { ...prev, [key]: !prev[key] };
+    });
+  }
+
+  function wisUitschakelingenVoorDienst(dienstId) {
+    setUitgeschakeldVoorKlant((prev) => {
+      const next = {};
+      Object.entries(prev).forEach(([key, val]) => {
+        if (!key.endsWith(`::${dienstId}`)) next[key] = val;
+      });
+      return next;
+    });
   }
 
   function variantVoorKlant(klantId, dienst) {
@@ -561,19 +586,21 @@ export default function OffertetoolApp() {
   }
 
   function regelsVoorKlant(klantId) {
-    return geselecteerdeEntries.map(({ dienst, aantal }) => {
-      const { prijs, opAanvraag, variant } = prijsVoor(klantId, dienst);
-      return {
-        id: dienst.id,
-        naam: variant?.naam ? `${dienst.naam} — ${variant.naam}` : dienst.naam,
-        eenheid: dienst.eenheid,
-        categorie: dienst.categorie,
-        aantal,
-        prijs,
-        opAanvraag,
-        subtotaal: opAanvraag ? 0 : aantal * prijs,
-      };
-    });
+    return geselecteerdeEntries
+      .filter(({ dienst }) => !isUitgeschakeldVoorKlant(klantId, dienst.id))
+      .map(({ dienst, aantal }) => {
+        const { prijs, opAanvraag, variant } = prijsVoor(klantId, dienst);
+        return {
+          id: dienst.id,
+          naam: variant?.naam ? `${dienst.naam} — ${variant.naam}` : dienst.naam,
+          eenheid: dienst.eenheid,
+          categorie: dienst.categorie,
+          aantal,
+          prijs,
+          opAanvraag,
+          subtotaal: opAanvraag ? 0 : aantal * prijs,
+        };
+      });
   }
 
   const heeftMeerdereVarianten = geselecteerdeEntries.some(({ dienst }) => dienst.varianten.length > 1);
@@ -661,6 +688,7 @@ export default function OffertetoolApp() {
     setGeselecteerd({});
     setKlantVarianten({});
     setAangepastePrijzen({});
+    setUitgeschakeldVoorKlant({});
     setStap("login");
   }
 
@@ -1482,7 +1510,7 @@ export default function OffertetoolApp() {
         {stap === "prijzen" && (
           <StapWrapper
             titel="Prijs (en variant) per dienst, per klant"
-            toelichting="Kies voor elke klant welke variant of staffel geldt (indien van toepassing) en pas de prijs aan waar nodig. Standaard staat de catalogusprijs van de gekozen variant ingevuld."
+            toelichting="Kies voor elke klant welke variant of staffel geldt (indien van toepassing) en pas de prijs aan waar nodig. Heeft u meerdere klanten? Dan kunt u per klant een dienst ook los aan- of uitzetten met het vinkje bovenin elke cel."
           >
             <div className="ot-card" style={{ padding: 0, overflow: "hidden" }}>
               <div style={{ overflowX: "auto" }}>
@@ -1532,8 +1560,32 @@ export default function OffertetoolApp() {
                             const aangepast = aangepastePrijzen[key] !== undefined && aangepastePrijzen[key] !== "";
                             const huidigeWaarde =
                               aangepastePrijzen[key] !== undefined ? aangepastePrijzen[key] : variant?.prijs === null ? "" : variant.prijs;
+                            const uitgeschakeld = isUitgeschakeldVoorKlant(k.id, dienst.id);
                             return (
                               <td key={k.id} style={{ padding: "10px 16px", borderLeft: "1px solid #E2E4DF", verticalAlign: "top" }}>
+                                {gekozenKlanten.length > 1 && (
+                                  <label
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 6,
+                                      fontSize: 11.5,
+                                      color: uitgeschakeld ? "#B4B9AE" : "#5B6259",
+                                      marginBottom: 8,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={!uitgeschakeld}
+                                      onChange={() => toggleDienstVoorKlant(k.id, dienst.id)}
+                                      style={{ width: 14, height: 14, accentColor: "#1C5D8C" }}
+                                    />
+                                    {uitgeschakeld ? "Niet voor deze klant" : "Voor deze klant"}
+                                  </label>
+                                )}
+                                {!uitgeschakeld && (
+                                  <>
                                 {meerdereVarianten && (
                                   <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
                                     {dienst.varianten.map((v) => (
@@ -1569,6 +1621,8 @@ export default function OffertetoolApp() {
                                     </button>
                                   )}
                                 </div>
+                                  </>
+                                )}
                               </td>
                             );
                           })}
