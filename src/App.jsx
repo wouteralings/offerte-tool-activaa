@@ -370,21 +370,6 @@ function currency(n) {
   }).format(n);
 }
 
-function splitsTekstInTweeën(tekst) {
-  const midden = Math.floor(tekst.length / 2);
-  const vorigeAlinea = tekst.lastIndexOf("\n\n", midden);
-  const volgendeAlinea = tekst.indexOf("\n\n", midden);
-  let splitspunt = midden;
-  if (vorigeAlinea !== -1 && volgendeAlinea !== -1) {
-    splitspunt = midden - vorigeAlinea <= volgendeAlinea - midden ? vorigeAlinea : volgendeAlinea;
-  } else if (vorigeAlinea !== -1) {
-    splitspunt = vorigeAlinea;
-  } else if (volgendeAlinea !== -1) {
-    splitspunt = volgendeAlinea;
-  }
-  return [tekst.slice(0, splitspunt).trim(), tekst.slice(splitspunt).trim()];
-}
-
 function klantAdresRegels(klant) {
   const nummerDeel = `${klant.huisnummer || ""}${klant.huisnummertoevoeging || ""}`.trim();
   const straatRegel = [klant.straat, nummerDeel].filter(Boolean).join(" ");
@@ -2843,9 +2828,9 @@ export default function OffertetoolApp() {
             )}
 
             {algemeneVoorwaarden.tekst.trim() !== "" && (
-              <div className="ot-card offerte-doc" style={{ padding: 18 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                  <div className="offertetool-serif" style={{ fontSize: 13, fontWeight: 600 }}>
+              <div className="ot-card offerte-doc" style={{ padding: 32 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                  <div className="offertetool-serif" style={{ fontSize: 20, fontWeight: 600 }}>
                     {algemeneVoorwaarden.titel || "Algemene Voorwaarden"}
                   </div>
                   {logo && (
@@ -2856,21 +2841,15 @@ export default function OffertetoolApp() {
                     />
                   )}
                 </div>
-                <div style={{ display: "flex", gap: 16 }}>
-                  {splitsTekstInTweeën(algemeneVoorwaarden.tekst).map((deel, i) => (
-                    <div
-                      key={i}
-                      style={{
-                        flex: 1,
-                        fontSize: 5.7,
-                        color: "#3A4038",
-                        lineHeight: 1.2,
-                        whiteSpace: "pre-wrap",
-                      }}
-                    >
-                      {deel}
-                    </div>
-                  ))}
+                <div
+                  style={{
+                    fontSize: 9.5,
+                    color: "#3A4038",
+                    lineHeight: 1.5,
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {algemeneVoorwaarden.tekst}
                 </div>
               </div>
             )}
