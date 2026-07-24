@@ -1232,7 +1232,7 @@ export default function OffertetoolApp() {
         {stap === "instellingen" && (
           <StapWrapper
             titel="Wie schrijven we aan namens?"
-            toelichting="Deze gegevens komen op elke offerte te staan. Standaard ingevuld vanuit uw Dynamics-profiel — u kunt ze per offerte aanpassen."
+            toelichting="Deze gegevens komen op elke offerte te staan. Standaard ingevuld vanuit Activaa CRM - profiel — je kunt ze per offerte aanpassen."
           >
             <div className="ot-card" style={{ padding: 24, display: "grid", gap: 16 }}>
               <div>
