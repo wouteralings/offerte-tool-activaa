@@ -1036,12 +1036,18 @@ export default function OffertetoolApp() {
 
   function uitloggen() {
     setIngelogd(false);
+    setEchteGebruiker(null);
     setGekozenKlanten([]);
     setGeselecteerd({});
     setKlantVarianten({});
     setAangepastePrijzen({});
     setUitgeschakeldVoorKlant({});
     setStap("login");
+    // Stuurt de browser naar het ingebouwde logout-endpoint van Azure Static
+    // Web Apps, zodat ook de echte Microsoft-sessie wordt beëindigd. Zonder
+    // deze regel bleef alleen de lokale React-state gereset, terwijl de
+    // sessie actief bleef — dan logde je bij een refresh automatisch weer in.
+    window.location.href = "/.auth/logout?post_logout_redirect_uri=/";
   }
 
   function stapIndex(key) {
