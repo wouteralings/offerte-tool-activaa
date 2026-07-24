@@ -2595,7 +2595,7 @@ export default function OffertetoolApp() {
                       <img
                         src={logo}
                         alt="Logo"
-                        style={{ maxWidth: 180, maxHeight: 72, objectFit: "contain", flexShrink: 0, marginLeft: 24 }}
+                        style={{ maxWidth: 140, maxHeight: 56, objectFit: "contain", flexShrink: 0, marginLeft: 24 }}
                       />
                     )}
                   </div>
@@ -2793,7 +2793,7 @@ export default function OffertetoolApp() {
                     <img
                       src={logo}
                       alt="Logo"
-                      style={{ maxWidth: 160, maxHeight: 64, objectFit: "contain", flexShrink: 0, marginLeft: 24 }}
+                      style={{ maxWidth: 140, maxHeight: 56, objectFit: "contain", flexShrink: 0, marginLeft: 24 }}
                     />
                   )}
                 </div>
@@ -2833,15 +2833,15 @@ export default function OffertetoolApp() {
                     <img
                       src={logo}
                       alt="Logo"
-                      style={{ maxWidth: 90, maxHeight: 36, objectFit: "contain", flexShrink: 0, marginLeft: 24 }}
+                      style={{ maxWidth: 140, maxHeight: 56, objectFit: "contain", flexShrink: 0, marginLeft: 24 }}
                     />
                   )}
                 </div>
                 <div
                   style={{
-                    fontSize: 5.6,
+                    fontSize: 5.3,
                     color: "#3A4038",
-                    lineHeight: 1.2,
+                    lineHeight: 1.17,
                     whiteSpace: "pre-wrap",
                     columnCount: 2,
                     columnGap: 16,
