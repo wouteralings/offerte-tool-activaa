@@ -370,6 +370,21 @@ function currency(n) {
   }).format(n);
 }
 
+function splitsTekstInTweeën(tekst) {
+  const midden = Math.floor(tekst.length / 2);
+  const vorigeAlinea = tekst.lastIndexOf("\n\n", midden);
+  const volgendeAlinea = tekst.indexOf("\n\n", midden);
+  let splitspunt = midden;
+  if (vorigeAlinea !== -1 && volgendeAlinea !== -1) {
+    splitspunt = midden - vorigeAlinea <= volgendeAlinea - midden ? vorigeAlinea : volgendeAlinea;
+  } else if (vorigeAlinea !== -1) {
+    splitspunt = vorigeAlinea;
+  } else if (volgendeAlinea !== -1) {
+    splitspunt = volgendeAlinea;
+  }
+  return [tekst.slice(0, splitspunt).trim(), tekst.slice(splitspunt).trim()];
+}
+
 function klantAdresRegels(klant) {
   const nummerDeel = `${klant.huisnummer || ""}${klant.huisnummertoevoeging || ""}`.trim();
   const straatRegel = [klant.straat, nummerDeel].filter(Boolean).join(" ");
@@ -2841,19 +2856,21 @@ export default function OffertetoolApp() {
                     />
                   )}
                 </div>
-                <div
-                  style={{
-                    fontSize: 5.7,
-                    color: "#3A4038",
-                    lineHeight: 1.2,
-                    whiteSpace: "pre-wrap",
-                    columnCount: 2,
-                    columnGap: 16,
-                    columnFill: "auto",
-                    height: "250mm",
-                  }}
-                >
-                  {algemeneVoorwaarden.tekst}
+                <div style={{ display: "flex", gap: 16 }}>
+                  {splitsTekstInTweeën(algemeneVoorwaarden.tekst).map((deel, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        flex: 1,
+                        fontSize: 5.7,
+                        color: "#3A4038",
+                        lineHeight: 1.2,
+                        whiteSpace: "pre-wrap",
+                      }}
+                    >
+                      {deel}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
