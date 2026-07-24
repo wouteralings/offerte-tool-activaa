@@ -60,7 +60,7 @@ module.exports = async function (context, req) {
       `${resource}/api/data/v9.2/accounts` +
       `?$select=accountid,name,address1_line1,address1_postalcode,address1_city,` +
       `cr283_huisnummer,cr283_huisnummertoevoeging,emailaddress1` +
-      `&$expand=primarycontactid($select=fullname),sk_account_Groepsnaam_sk_groepen` +
+      `&$expand=primarycontactid($select=fullname),sk_groepsnaam` +
       `&$top=200`;
 
     const dynamicsRes = await fetch(query, {
@@ -85,9 +85,8 @@ module.exports = async function (context, req) {
 
     const data = await dynamicsRes.json();
     const klanten = (data.value || []).map((rij) => {
-      const groep = rij.sk_account_Groepsnaam_sk_groepen;
-      const klantgroep =
-        groep?.sk_name || groep?.sk_groepsnaam || groep?.name || groep?.cr283_naam || "";
+      const groep = rij.sk_groepsnaam;
+      const klantgroep = groep?.groepsnaam || groep?.sk_name || groep?.name || groep?.cr283_naam || "";
 
       return {
         id: rij.accountid,

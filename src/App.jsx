@@ -187,6 +187,66 @@ function klantAdresRegels(klant) {
   return [straatRegel, plaatsRegel].filter(Boolean);
 }
 
+// ---------------------------------------------------------------------------
+// Opslaghulp: gebruikt window.storage zolang die beschikbaar is (bijv. hier in
+// Claude), en valt anders automatisch terug op de eigen Azure Function
+// (/api/instellingen) — zo werkt hetzelfde bestand zowel hier als live op Azure.
+// ---------------------------------------------------------------------------
+async function opslagGet(sleutel) {
+  if (typeof window !== "undefined" && window.storage) {
+    try {
+      const resultaat = await window.storage.get(sleutel, false);
+      return resultaat?.value;
+    } catch (e) {
+      return undefined;
+    }
+  }
+  try {
+    const res = await fetch(`/api/instellingen/${encodeURIComponent(sleutel)}`);
+    if (!res.ok) return undefined;
+    const data = await res.json();
+    return data.value;
+  } catch (e) {
+    return undefined;
+  }
+}
+
+async function opslagSet(sleutel, waarde) {
+  if (typeof window !== "undefined" && window.storage) {
+    try {
+      await window.storage.set(sleutel, waarde, false);
+    } catch (e) {
+      // opslaan mislukt — wijziging blijft dan wel zichtbaar voor deze sessie
+    }
+    return;
+  }
+  try {
+    await fetch(`/api/instellingen/${encodeURIComponent(sleutel)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value: waarde }),
+    });
+  } catch (e) {
+    // opslaan mislukt — wijziging blijft dan wel zichtbaar voor deze sessie
+  }
+}
+
+async function opslagDelete(sleutel) {
+  if (typeof window !== "undefined" && window.storage) {
+    try {
+      await window.storage.delete(sleutel, false);
+    } catch (e) {
+      // niets opgeslagen om te verwijderen
+    }
+    return;
+  }
+  try {
+    await fetch(`/api/instellingen/${encodeURIComponent(sleutel)}`, { method: "DELETE" });
+  } catch (e) {
+    // niets opgeslagen om te verwijderen
+  }
+}
+
 function genereerStandaardLogo(bedrijfsnaam) {
   const initialen = (bedrijfsnaam || "OF")
     .split(/\s+/)
@@ -268,11 +328,9 @@ export default function OffertetoolApp() {
     let actief = true;
     (async () => {
       try {
-        if (window.storage) {
-          const resultaat = await window.storage.get("afzender", false);
-          if (actief && resultaat?.value) {
-            setAfzender(JSON.parse(resultaat.value));
-          }
+        const waarde = await opslagGet("afzender");
+        if (actief && waarde) {
+          setAfzender(JSON.parse(waarde));
         }
       } catch (e) {
         // nog geen afzendergegevens opgeslagen, of opslag niet beschikbaar
@@ -289,7 +347,7 @@ export default function OffertetoolApp() {
     if (!afzenderGeladen) return;
     (async () => {
       try {
-        if (window.storage) await window.storage.set("afzender", JSON.stringify(afzender), false);
+        await opslagSet("afzender", JSON.stringify(afzender));
       } catch (e) {
         // opslaan mislukt — wijzigingen blijven dan wel zichtbaar voor deze sessie
       }
@@ -304,13 +362,11 @@ export default function OffertetoolApp() {
     let actief = true;
     (async () => {
       try {
-        if (window.storage) {
-          const resultaat = await window.storage.get("logo", false);
-          if (actief && resultaat?.value) {
-            setLogo(resultaat.value);
-            setLogoGeladen(true);
-            return;
-          }
+        const waarde = await opslagGet("logo");
+        if (actief && waarde) {
+          setLogo(waarde);
+          setLogoGeladen(true);
+          return;
         }
       } catch (e) {
         // nog geen logo opgeslagen, of opslag niet beschikbaar — dan vullen we de standaard in
@@ -320,7 +376,7 @@ export default function OffertetoolApp() {
       setLogo(standaard);
       setLogoGeladen(true);
       try {
-        if (window.storage) await window.storage.set("logo", standaard, false);
+        await opslagSet("logo", standaard);
       } catch (e) {
         // opslaan mislukt — logo blijft dan wel zichtbaar voor deze sessie
       }
@@ -338,7 +394,7 @@ export default function OffertetoolApp() {
       const dataUrl = e.target.result;
       setLogo(dataUrl);
       try {
-        if (window.storage) await window.storage.set("logo", dataUrl, false);
+        await opslagSet("logo", dataUrl);
       } catch (err) {
         // opslaan mislukt — logo blijft dan wel zichtbaar voor deze sessie
       }
@@ -349,7 +405,7 @@ export default function OffertetoolApp() {
   async function logoVerwijderen() {
     setLogo(null);
     try {
-      if (window.storage) await window.storage.delete("logo", false);
+      await opslagDelete("logo");
     } catch (e) {
       // niets opgeslagen om te verwijderen
     }
@@ -383,17 +439,15 @@ export default function OffertetoolApp() {
     let actief = true;
     (async () => {
       try {
-        if (window.storage) {
-          const [algemeenResultaat, perDienstResultaat, perKlantResultaat] = await Promise.all([
-            window.storage.get("bijlage-algemeen", false).catch(() => null),
-            window.storage.get("bijlage-per-dienst", false).catch(() => null),
-            window.storage.get("bijlage-per-klant", false).catch(() => null),
-          ]);
-          if (actief) {
-            if (algemeenResultaat?.value) setAlgemeneToelichting(algemeenResultaat.value);
-            if (perDienstResultaat?.value) setBijlageToelichtingen(JSON.parse(perDienstResultaat.value));
-            if (perKlantResultaat?.value) setKlantToelichtingen(JSON.parse(perKlantResultaat.value));
-          }
+        const [algemeenWaarde, perDienstWaarde, perKlantWaarde] = await Promise.all([
+          opslagGet("bijlage-algemeen"),
+          opslagGet("bijlage-per-dienst"),
+          opslagGet("bijlage-per-klant"),
+        ]);
+        if (actief) {
+          if (algemeenWaarde) setAlgemeneToelichting(algemeenWaarde);
+          if (perDienstWaarde) setBijlageToelichtingen(JSON.parse(perDienstWaarde));
+          if (perKlantWaarde) setKlantToelichtingen(JSON.parse(perKlantWaarde));
         }
       } catch (e) {
         // nog niets opgeslagen, of opslag niet beschikbaar
@@ -410,7 +464,7 @@ export default function OffertetoolApp() {
     if (!bijlageGeladen) return;
     (async () => {
       try {
-        if (window.storage) await window.storage.set("bijlage-algemeen", algemeneToelichting, false);
+        await opslagSet("bijlage-algemeen", algemeneToelichting);
       } catch (e) {}
     })();
   }, [algemeneToelichting, bijlageGeladen]);
@@ -419,7 +473,7 @@ export default function OffertetoolApp() {
     if (!bijlageGeladen) return;
     (async () => {
       try {
-        if (window.storage) await window.storage.set("bijlage-per-dienst", JSON.stringify(bijlageToelichtingen), false);
+        await opslagSet("bijlage-per-dienst", JSON.stringify(bijlageToelichtingen));
       } catch (e) {}
     })();
   }, [bijlageToelichtingen, bijlageGeladen]);
@@ -428,7 +482,7 @@ export default function OffertetoolApp() {
     if (!bijlageGeladen) return;
     (async () => {
       try {
-        if (window.storage) await window.storage.set("bijlage-per-klant", JSON.stringify(klantToelichtingen), false);
+        await opslagSet("bijlage-per-klant", JSON.stringify(klantToelichtingen));
       } catch (e) {}
     })();
   }, [klantToelichtingen, bijlageGeladen]);
@@ -445,11 +499,9 @@ export default function OffertetoolApp() {
     let actief = true;
     (async () => {
       try {
-        if (window.storage) {
-          const resultaat = await window.storage.get("dienstencatalogus", false);
-          if (actief && resultaat?.value) {
-            setDienstenCatalogus(JSON.parse(resultaat.value));
-          }
+        const waarde = await opslagGet("dienstencatalogus");
+        if (actief && waarde) {
+          setDienstenCatalogus(JSON.parse(waarde));
         }
       } catch (e) {
         // nog niets opgeslagen, of opslag niet beschikbaar — dan blijft de standaardcatalogus staan
@@ -466,7 +518,7 @@ export default function OffertetoolApp() {
     if (!catalogusGeladen) return;
     (async () => {
       try {
-        if (window.storage) await window.storage.set("dienstencatalogus", JSON.stringify(dienstenCatalogus), false);
+        await opslagSet("dienstencatalogus", JSON.stringify(dienstenCatalogus));
       } catch (e) {
         // opslaan mislukt — wijzigingen blijven dan wel zichtbaar voor deze sessie
       }
@@ -478,11 +530,9 @@ export default function OffertetoolApp() {
     let actief = true;
     (async () => {
       try {
-        if (window.storage) {
-          const resultaat = await window.storage.get("standaardteksten", false);
-          if (actief && resultaat?.value) {
-            setStandaardTeksten(JSON.parse(resultaat.value));
-          }
+        const waarde = await opslagGet("standaardteksten");
+        if (actief && waarde) {
+          setStandaardTeksten(JSON.parse(waarde));
         }
       } catch (e) {
         // nog geen standaardteksten opgeslagen, of opslag niet beschikbaar
@@ -499,7 +549,7 @@ export default function OffertetoolApp() {
     if (!tekstenGeladen) return;
     (async () => {
       try {
-        if (window.storage) await window.storage.set("standaardteksten", JSON.stringify(standaardTeksten), false);
+        await opslagSet("standaardteksten", JSON.stringify(standaardTeksten));
       } catch (e) {
         // opslaan mislukt — wijzigingen blijven dan wel zichtbaar voor deze sessie
       }

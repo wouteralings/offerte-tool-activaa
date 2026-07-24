@@ -2,5 +2,7 @@
   "name": "offertetool-api",
   "version": "1.0.0",
   "private": true,
-  "main": "klanten/index.js"
+  "dependencies": {
+    "@azure/data-tables": "^13.3.0"
+  }
 }

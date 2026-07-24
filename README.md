@@ -88,3 +88,30 @@ bestand aan.
 - **Opslag van instellingen** (logo, dienstencatalogus, standaardteksten): gebruikt nu de
   opslag-API van de ontwikkelomgeving waarin dit gebouwd is. Voor productie is op termijn
   een echte database aan te raden.
+
+## Instellingen (logo, catalogus, teksten) blijvend bewaren
+
+Naast de klantkoppeling is er nu ook een Function `api/instellingen` die logo, afzendergegevens,
+dienstencatalogus, standaardteksten en bijlage-teksten blijvend opslaat via **Azure Table Storage**.
+Zonder deze koppeling blijft de tool gewoon werken, maar onthoudt hij niets tussen sessies in.
+
+### Stap 1 — Een Storage Account aanmaken
+
+1. Ga in Azure naar **"Een resource maken"** → zoek **"Storage account"** → **Maken**.
+2. Kies dezelfde resourcegroep als je Static Web App. Naam bijv. `stoffertetool` (alleen
+   kleine letters/cijfers, moet uniek zijn binnen Azure).
+3. Performance: **Standard**, Redundancy: **LRS** is voldoende (goedkoopste optie).
+4. Aanmaken.
+
+### Stap 2 — Connection string ophalen
+
+1. Ga naar het nieuwe Storage Account → **"Access keys"** (Toegangssleutels) in het menu.
+2. Klik bij **key1** op **"Show"** (Weergeven) en kopieer de **Connection string**.
+
+### Stap 3 — Instelling toevoegen aan de Static Web App
+
+Ga naar je Static Web App → **Omgevingsvariabelen** → **+ Toevoegen**:
+- **Naam**: `STORAGE_CONNECTION_STRING`
+- **Waarde**: de connection string uit stap 2
+
+Opslaan. De tabel `instellingen` wordt automatisch aangemaakt bij het eerste gebruik.
