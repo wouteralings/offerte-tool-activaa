@@ -91,6 +91,139 @@ function nieuwId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${volgnr}`;
 }
 
+const STANDAARD_VOORWAARDEN_TEKST = `Artikel 1. Definities
+
+1. De met hoofdletters aangegeven definities hebben in het kader van deze algemene voorwaarden de volgende betekenis:
+a. Bescheiden: alle door Opdrachtgever aan Opdrachtnemer ter beschikking gestelde informatie of gegevens, al dan niet vervat op (on)stoffelijke dragers en al dan niet ondergebracht bij derden, alsmede alle in het kader van de uitvoering van de Opdracht/Overeenkomst door Opdrachtnemer vervaardigde of verzamelde gegevens, al dan niet vervat op (on)stoffelijke dragers en al dan niet ondergebracht bij derden, alsmede alle overige informatie van enige relevantie voor de uitvoering of voltooiing van de Opdracht.
+b. Medewerker: een natuurlijke persoon werkzaam bij of verbonden aan de Opdrachtnemer al dan niet op grond van een arbeidsovereenkomst.
+c. Opdracht/Overeenkomst: de overeenkomst van opdracht, waarbij Opdrachtnemer zich jegens Opdrachtgever verbindt om bepaalde Werkzaamheden te verrichten.
+d. Opdrachtgever: de natuurlijke persoon of de rechtspersoon die aan Opdrachtnemer de opdracht heeft gegeven tot het verrichten van Werkzaamheden.
+e. Opdrachtnemer: de besloten vennootschap Activaa BV, statutair en feitelijk gevestigd te IJsselstein (KvK-nummer: 58201718) en/of aan haar gelieerde vennootschappen.
+f. Werkzaamheden: alle door Opdrachtnemer ten behoeve van Opdrachtgever uit te voeren Werkzaamheden waartoe Opdracht is gegeven en die door Opdrachtnemer zijn aanvaard, alsmede alle daaruit voor Opdrachtnemer voortvloeiende Werkzaamheden.
+2. Alle Opdrachten worden uitsluitend aanvaard en uitgevoerd door het kantoor, niet door of vanwege een individuele Medewerker, ongeacht of Opdrachtgever de Opdracht uitdrukkelijk of stilzwijgend heeft verleend met het oog op uitvoering hiervan door een bepaalde Medewerker of bepaalde Medewerkers. De artikelen 7:404, 7:407 lid 2 en 7:409 BW worden uitdrukkelijk van toepassing uitgesloten.
+3. Opdrachtgever zal eventuele vorderings- of verhaalsrechten uitsluitend uitoefenen tegen Opdrachtnemer en niet tegen bestuurders, aandeelhouders, Medewerkers of door Opdrachtnemer ingeschakelde derden c.q. hulppersonen.
+
+Artikel 2. Toepasselijkheid
+
+1. Deze algemene voorwaarden zijn van toepassing op: alle aanbiedingen, offertes, Opdrachten, rechtsbetrekkingen en overeenkomsten, hoe ook genaamd, waarbij Opdrachtnemer zich verbindt/zal verbinden om Werkzaamheden te verrichten voor Opdrachtgever, alsmede op alle daaruit voor Opdrachtnemer voortvloeiende Werkzaamheden.
+2. Afwijkingen van, en aanvullingen op, deze algemene voorwaarden zijn slechts geldig indien deze uitdrukkelijk en schriftelijk zijn overeengekomen, bijvoorbeeld in een (schriftelijke) overeenkomst of opdrachtbevestiging.
+3. Indien enige voorwaarde in deze algemene voorwaarden en in de opdrachtbevestiging onderling tegenstrijdig zijn, geldt de in de opdrachtbevestiging opgenomen voorwaarde voor wat betreft de tegenstrijdigheid.
+4. De toepasselijkheid van de algemene voorwaarden van Opdrachtgever wordt door Opdrachtnemer uitdrukkelijk van de hand gewezen.
+5. Deze algemene voorwaarden gelden ook voor eventuele aanvullende of vervolgopdrachten.
+6. Op deze algemene voorwaarden kunnen zich ook die natuurlijke en rechtspersonen beroepen die direct of indirect, al dan niet op grond van een arbeidsovereenkomst, bij de dienstverlening aan Opdrachtgever door of vanwege Opdrachtnemer zijn betrokken.
+
+Artikel 3. Totstandkoming & uitvoering opdracht
+
+1. De Opdracht komt tot stand (i) op het moment dat de opdrachtbevestiging door Opdrachtnemer en Opdrachtgever is ondertekend en deze door Opdrachtnemer retour is ontvangen, (ii) indien geen opdrachtbevestiging wordt toegestuurd, op het moment waarop een door Opdrachtnemer gedaan aanbod door Opdrachtgever uitdrukkelijk mondeling of schriftelijk en ongewijzigd is aanvaard, en (iii) indien de door Opdrachtgever verstrekte opdracht niet is voorafgegaan door een aanbod van Opdrachtnemer, op het moment waarop Opdrachtnemer met de uitvoering van de Opdracht een aanvang heeft gemaakt. De Overeenkomst is gebaseerd op de voorafgaand aan de totstandkoming van de Overeenkomst door Opdrachtgever aan Opdrachtnemer verstrekte Bescheiden.
+2. Indien de Opdracht mondeling is verstrekt, dan wel indien de Overeenkomst (nog) niet getekend retour is ontvangen, wordt de Opdracht geacht tot stand te zijn gekomen onder toepasselijkheid van deze algemene voorwaarden op het moment dat Opdrachtnemer op verzoek van Opdrachtgever met de uitvoering van de Opdracht is gestart.
+3. Het staat partijen vrij te bewijzen dat de Overeenkomst op een andere wijze tot stand is gekomen.
+4. Opdrachtnemer bepaalt de wijze waarop de Opdracht wordt uitgevoerd en door welke Medewerker(s).
+5. Opdrachtnemer heeft het recht om Werkzaamheden te laten verrichten door een door Opdrachtnemer aan te wijzen derde.
+6. De uitvoering van verstrekte opdrachten door Opdrachtnemer geschiedt uitsluitend ten behoeve van Opdrachtgever. Derden kunnen aan de uitvoering van de voor Opdrachtgever verrichte werkzaamheden geen enkel recht ontlenen. Opdrachtnemer voert de Opdracht uit naar beste kunnen en met inachtneming van de toepasselijke wet- en regelgeving.
+
+Artikel 4. Gegevens opdrachtgever
+
+1. Opdrachtgever is gehouden om alle Bescheiden welke Opdrachtnemer naar zijn oordeel nodig heeft voor het correct uitvoeren van de verleende Opdracht, in de gewenste vorm, op de gewenste wijze en tijdig ter beschikking van Opdrachtnemer te stellen. Opdrachtnemer bepaalt wat onder gewenste vorm, gewenste wijze en tijdig dient te worden verstaan.
+2. Opdrachtgever staat in voor de juistheid, volledigheid en betrouwbaarheid van de door hem verstrekte Bescheiden, ook indien deze van derden afkomstig zijn, voor zover uit de aard van de Opdracht niet anders voortvloeit.
+3. Opdrachtnemer heeft het recht om de uitvoering van de Opdracht op te schorten tot het moment dat Opdrachtgever aan de in het eerste en tweede lid genoemde verplichtingen heeft voldaan.
+4. Opdrachtgever vrijwaart Opdrachtnemer voor schade die het gevolg is van onjuiste of onvolledige Bescheiden.
+5. Voor rekening en risico van Opdrachtgever zijn de door Opdrachtnemer gemaakte extra kosten en extra uren, alsmede de overige schade voor Opdrachtnemer, vanwege het niet, niet tijdig of niet behoorlijk verschaffen door Opdrachtgever van voor de uitvoering van de Werkzaamheden noodzakelijke Bescheiden.
+6. Opdrachtnemer heeft het recht om de uitvoering van de Opdracht op te schorten tot het moment dat Opdrachtgever aan de in het eerste lid genoemde verplichtingen heeft voldaan.
+7. Op eerste verzoek van Opdrachtgever zal Opdrachtnemer de originele, door Opdrachtgever verstrekte, Bescheiden aan Opdrachtgever retourneren.
+
+Artikel 5. Regelgeving
+
+1. Opdrachtgever verleent telkens en volledig medewerking aan de verplichtingen die voor Opdrachtnemer voortvloeien uit de toepasselijke regelgeving.
+2. Opdrachtgever is ermee bekend dat Opdrachtnemer in sommige gevallen op basis van (inter)nationale wet- of regelgeving verplicht wordt tot openbaarmaking van vertrouwelijke informatie van Opdrachtgever. Voor zover nodig, geeft Opdrachtgever hierbij haar toestemming en medewerking aan dergelijke openbaarmaking, waaronder (maar niet uitsluitend) in de gevallen dat Opdrachtnemer:
+a. in wet- en regelgeving omschreven en tijdens de uitvoering van zijn Werkzaamheden bekend geworden transacties dient te melden aan de daarvoor van overheidswege ingestelde autoriteiten;
+b. op grond van geldende wet- en regelgeving in bepaalde situaties een fraudemelding zal moeten doen;
+c. krachtens geldende wet- en regelgeving verplicht kan zijn om een onderzoek naar de (identiteit van) Opdrachtgever c.q. de cliënt te doen.
+3. Opdrachtnemer sluit iedere aansprakelijkheid uit voor schade die ontstaat bij Opdrachtgever ten gevolge van het voldoen door Opdrachtnemer aan de voor hem geldende wet- en regelgeving.
+
+Artikel 6. Intellectuele eigendom
+
+1. Het uitvoeren van de Opdracht door Opdrachtnemer houdt niet in de overdracht van intellectuele eigendomsrechten die bij Opdrachtnemer rusten. Alle intellectuele eigendomsrechten die ontstaan tijdens, of voortvloeien uit, de uitvoering van de Opdracht behoren toe aan Opdrachtnemer.
+2. Het is Opdrachtgever uitdrukkelijk verboden om de producten waarin intellectuele eigendomsrechten van Opdrachtnemer zijn vervat, dan wel producten waarop intellectuele eigendomsrechten rusten met betrekking tot het gebruik waarvan Opdrachtnemer gebruiksrechten heeft verworven — waaronder in dit verband in elk geval, maar niet uitsluitend, begrepen: computerprogramma's, systeemontwerpen, werkwijzen, adviezen, (model)contracten, rapportages, templates, macro's en andere geestesproducten — te verveelvoudigen, te openbaren of te exploiteren.
+3. Het is Opdrachtgever niet toegestaan om de in het tweede lid genoemde producten zonder voorafgaande schriftelijke toestemming van Opdrachtnemer aan derden ter hand te stellen, anders dan ter verkrijging van een deskundig oordeel omtrent de uitvoering van de Werkzaamheden door Opdrachtnemer. Opdrachtgever zal in dat geval zijn verplichtingen op grond van dit artikel opleggen aan de door hem ingeschakelde derden.
+
+Artikel 7. Overmacht
+
+1. Indien partijen de verplichtingen uit de overeenkomst niet, niet tijdig of niet behoorlijk kunnen nakomen ten gevolge van overmacht in de zin van art. 6:75 BW, dan worden die verplichtingen opgeschort tot op het moment dat partijen alsnog in staat zijn deze op de overeengekomen wijze na te komen.
+2. In geval de situatie als bedoeld in het eerste lid zich voordoet, hebben partijen het recht om de overeenkomst geheel of gedeeltelijk en met onmiddellijke ingang schriftelijk op te zeggen, overigens zonder dat recht op enige schadevergoeding bestaat.
+3. Indien Opdrachtnemer bij het intreden van de overmachtssituatie al gedeeltelijk aan de overeengekomen verplichtingen heeft voldaan, is Opdrachtnemer gerechtigd de verrichte Werkzaamheden afzonderlijk en tussentijds te factureren en dient Opdrachtgever deze factuur te voldoen alsof het een afzonderlijke transactie betrof.
+
+Artikel 8. Honorarium en kosten
+
+1. De door Opdrachtnemer uitgevoerde Werkzaamheden worden op basis van bestede tijd en gemaakte kosten aan Opdrachtgever in rekening gebracht. Betaling van het honorarium is niet afhankelijk van het resultaat van de Werkzaamheden, tenzij anders overeengekomen. Reistijd en verblijfskosten worden apart in rekening gebracht.
+2. Naast het honorarium worden de door Opdrachtnemer gemaakte onkosten en de declaraties van door Opdrachtnemer ingeschakelde derden aan Opdrachtgever in rekening gebracht.
+3. Opdrachtnemer heeft het recht om een voorschot te vragen aan Opdrachtgever. Het niet (tijdig) betalen van het voorschot kan een reden zijn voor Opdrachtnemer om de Werkzaamheden (tijdelijk) op te schorten.
+4. Indien na de totstandkoming van de Overeenkomst, doch voordat de Opdracht geheel is uitgevoerd, honoraria of prijzen een wijziging ondergaan, is Opdrachtnemer gerechtigd het overeengekomen tarief dienovereenkomstig aan te passen.
+5. Over alle door Opdrachtgever aan Opdrachtnemer verschuldigde bedragen wordt, indien de wet daartoe verplicht, de omzetbelasting afzonderlijk in rekening gebracht.
+
+Artikel 9. Betaling
+
+1. Betaling door Opdrachtgever van de aan Opdrachtnemer verschuldigde bedragen dient, zonder dat Opdrachtgever recht heeft op enige aftrek, korting of verrekening, te geschieden binnen 30 dagen na de factuurdatum, tenzij anders overeengekomen. De dag van betaling is de dag van bijschrijving van het verschuldigde op de rekening van Opdrachtnemer.
+2. Indien Opdrachtgever niet binnen de in het eerste lid genoemde termijn heeft betaald, is Opdrachtgever van rechtswege in verzuim en is Opdrachtnemer gerechtigd om vanaf dat moment de wettelijke (handels)rente in rekening te brengen.
+3. Indien Opdrachtgever niet binnen de in het eerste lid genoemde termijn heeft betaald, is Opdrachtgever gehouden tot vergoeding van alle door Opdrachtnemer gemaakte gerechtelijke en buitengerechtelijke (incasso)kosten. De vergoeding van de gemaakte kosten beperkt zich niet tot de eventueel door de rechter vastgestelde kostenveroordeling.
+4. In geval van een gezamenlijk gegeven Opdracht zijn Opdrachtgevers hoofdelijk aansprakelijk voor de betaling van het factuurbedrag en de verschuldigde rente(n) en kosten.
+5. Indien de financiële positie of het betalingsgedrag van Opdrachtgever naar het oordeel van Opdrachtnemer daartoe aanleiding geeft, dan wel indien Opdrachtgever nalaat een voorschot dan wel een declaratie binnen de daarvoor gestelde betalingstermijn te voldoen, is Opdrachtnemer gerechtigd van Opdrachtgever te verlangen dat deze onverwijld (aanvullende) zekerheid stelt in een door Opdrachtnemer te bepalen vorm. Indien Opdrachtgever nalaat de verlangde zekerheid te stellen, is Opdrachtnemer gerechtigd, onverminderd zijn overige rechten, de verdere uitvoering van de overeenkomst onmiddellijk op te schorten, en is al hetgeen Opdrachtgever aan Opdrachtnemer uit welke hoofde ook verschuldigd is, direct opeisbaar.
+
+Artikel 10. Termijnen
+
+1. Indien tussen Opdrachtgever en Opdrachtnemer een termijn/datum is afgesproken waarbinnen de Opdracht dient te worden uitgevoerd en Opdrachtgever verzuimt om (a) een vooruitbetaling te voldoen — indien overeengekomen — of (b) de noodzakelijke Bescheiden tijdig, volledig, in de gewenste vorm en op de gewenste wijze ter beschikking te stellen, dan treden Opdrachtgever en Opdrachtnemer in overleg over een nieuwe termijn/datum waarbinnen de Opdracht dient te worden uitgevoerd.
+2. Termijnen waarbinnen de Werkzaamheden dienen te zijn afgerond, zijn slechts te beschouwen als een fatale termijn indien dit uitdrukkelijk en met zoveel woorden tussen Opdrachtgever en Opdrachtnemer is overeengekomen.
+
+Artikel 11. Aansprakelijkheid en vrijwaringen
+
+1. Opdrachtnemer is niet aansprakelijk voor schade van Opdrachtgever die ontstaat doordat Opdrachtgever aan Opdrachtnemer onjuiste of onvolledige Bescheiden heeft verstrekt.
+2. Opdrachtnemer is niet aansprakelijk voor enige gevolgschade, bedrijfsschade of indirecte schade die het gevolg is van het niet, niet tijdig of niet deugdelijk presteren door Opdrachtnemer.
+3. De contractuele en buitencontractuele aansprakelijkheid van Opdrachtnemer voor schade, voortvloeiend uit of verband houdend met de uitvoering van de Opdracht en eventuele tekortkomingen daarbij, is beperkt tot het bedrag dat in het desbetreffende geval zal worden uitgekeerd door de door Opdrachtnemer gesloten beroepsaansprakelijkheidsverzekering, vermeerderd met het eigen risico van Opdrachtnemer op grond van de polisvoorwaarden van deze beroepsaansprakelijkheidsverzekering. Indien, om welke reden dan ook, de aansprakelijkheidsverzekeraar niet tot uitkering overgaat, is de aansprakelijkheid van Opdrachtnemer beperkt tot het bedrag van het voor de uitvoering van de Opdracht in rekening gebrachte honorarium. Indien de Opdracht een duurovereenkomst betreft met een looptijd van meer dan een jaar, dan wordt het hiervoor bedoelde bedrag gesteld op één maal het bedrag van het honorarium dat in de twaalf maanden voorafgaand aan het ontstaan van de schade in rekening is gebracht aan Opdrachtgever.
+4. Een samenhangende serie van toerekenbare tekortkomingen geldt als één (1) toerekenbare tekortkoming.
+5. De in dit artikel opgenomen beperkingen van aansprakelijkheid zijn niet van toepassing indien en voor zover sprake is van opzet of bewuste roekeloosheid van Opdrachtnemer of haar leidinggevend management.
+6. Opdrachtgever is gehouden om schade beperkende maatregelen te nemen. Opdrachtnemer heeft het recht om de schade ongedaan te maken of te beperken door herstel of verbetering van de uitgevoerde Werkzaamheden.
+7. Opdrachtgever vrijwaart Opdrachtnemer voor vorderingen van derden wegens schade die is veroorzaakt doordat Opdrachtgever aan Opdrachtnemer geen, onjuiste of onvolledige Bescheiden heeft verstrekt.
+8. Opdrachtgever vrijwaart Opdrachtnemer voor aanspraken van derden (Medewerkers van Opdrachtnemer en door Opdrachtnemer ingeschakelde derden daaronder begrepen) die in verband met de uitvoering van de Opdracht schade lijden welke het gevolg is van het handelen of nalaten van Opdrachtgever of van onveilige situaties in diens bedrijf of organisatie.
+9. Het bepaalde in dit artikel heeft zowel betrekking op de contractuele als de buitencontractuele aansprakelijkheid (onrechtmatige daad) van Opdrachtnemer jegens Opdrachtgever.
+
+Artikel 12. Opzegging
+
+1. Opdrachtgever en Opdrachtnemer kunnen te allen tijde (tussentijds) de overeenkomst opzeggen zonder inachtneming van een opzegtermijn. Indien de overeenkomst eindigt voordat de Opdracht is voltooid, is Opdrachtgever het honorarium verschuldigd overeenkomstig de door Opdrachtnemer opgegeven uren voor Werkzaamheden die ten behoeve van Opdrachtgever zijn verricht.
+2. Opzegging dient schriftelijk te geschieden.
+3. Indien tot (tussentijdse) opzegging is overgegaan door Opdrachtgever, heeft Opdrachtnemer recht op vergoeding van het aan zijn zijde ontstane en aannemelijk te maken bezettingsverlies, alsmede op vergoeding van additionele kosten die Opdrachtnemer reeds heeft gemaakt en kosten die voortvloeien uit eventuele annulering van ingeschakelde derden (zoals — onder meer — eventuele kosten met betrekking tot onderaanneming).
+4. Indien tot (tussentijdse) opzegging is overgegaan door Opdrachtnemer, heeft Opdrachtgever recht op medewerking van Opdrachtnemer bij overdracht van Werkzaamheden aan derden, tenzij er sprake is van opzet of bewuste roekeloosheid aan de zijde van Opdrachtgever waardoor Opdrachtnemer zich genoodzaakt ziet tot opzegging over te gaan. Voorwaarde voor het recht op medewerking als in dit lid bepaald, is dat Opdrachtgever alle onderliggende openstaande voorschotten dan wel alle declaraties heeft voldaan.
+
+Artikel 13. Opschortingsrecht
+
+1. Opdrachtnemer is bevoegd om, na een zorgvuldige belangenafweging, de nakoming van al zijn verplichtingen op te schorten — waaronder begrepen de afgifte van Bescheiden of andere zaken aan Opdrachtgever of derden — tot op het moment dat alle opeisbare vorderingen op Opdrachtgever volledig zijn voldaan.
+2. Het eerste lid is niet van toepassing met betrekking tot Bescheiden van Opdrachtgever die (nog) geen bewerking door Opdrachtnemer hebben ondergaan.
+
+Artikel 14. Vervaltermijn
+
+Voor zover in deze algemene voorwaarden niet anders is bepaald, vervallen vorderingsrechten en andere bevoegdheden van Opdrachtgever uit welke hoofde ook jegens Opdrachtnemer in verband met het verrichten van Werkzaamheden door Opdrachtnemer, in ieder geval na één jaar na het moment waarop Opdrachtgever bekend werd of redelijkerwijs bekend kon zijn met het bestaan van deze rechten en bevoegdheden. Deze termijn betreft niet de mogelijkheid om een klacht in te dienen bij de daartoe aangewezen instantie(s) voor de klachtbehandeling en/of de Raad voor Geschillen.
+
+Artikel 15. Elektronische communicatie
+
+1. Tijdens de uitvoering van de Opdracht kunnen Opdrachtgever en Opdrachtnemer op verzoek van Opdrachtgever door middel van elektronische middelen met elkaar communiceren.
+2. Opdrachtgever en Opdrachtnemer zijn jegens elkaar niet aansprakelijk voor schade die eventueel voortvloeit bij één of ieder van hen ten gevolge van het gebruik van elektronische middelen van communicatie, waaronder — maar niet beperkt tot — schade ten gevolge van niet-aflevering of vertraging bij de aflevering van elektronische communicatie, onderschepping of manipulatie van elektronische communicatie door derden of door programmatuur/apparatuur gebruikt voor verzending, ontvangst of verwerking van elektronische communicatie, overbrenging van virussen en het niet of niet goed functioneren van het telecommunicatienetwerk of andere voor elektronische communicatie benodigde middelen, behoudens voor zover de schade het gevolg is van opzet of grove schuld.
+3. Zowel Opdrachtgever als Opdrachtnemer zullen al hetgeen redelijkerwijs van ieder van hen verwacht mag worden doen of nalaten ter voorkoming van het optreden van voornoemde risico's.
+4. De data-uittreksels uit de computersystemen van verzender leveren dwingend bewijs op van (de inhoud van) de door verzender verzonden elektronische communicatie, tot het moment dat tegenbewijs is geleverd door de ontvanger.
+
+Artikel 16. Overige bepalingen
+
+1. Indien Opdrachtnemer op locatie van Opdrachtgever Werkzaamheden verricht, draagt Opdrachtgever zorg voor een geschikte werkplek, die voldoet aan de wettelijk gestelde Arbonormen en aan andere toepasselijke regelgeving met betrekking tot arbeidsomstandigheden. Opdrachtgever dient er voor zorg te dragen dat Opdrachtnemer in dat geval wordt voorzien van kantoorruimte en overige faciliteiten die naar het oordeel van Opdrachtnemer noodzakelijk of nuttig zijn om de Overeenkomst uit te voeren en die voldoen aan alle daaraan te stellen (wettelijke) vereisten. Met betrekking tot beschikbaar gestelde (computer)faciliteiten is Opdrachtgever verplicht voor continuïteit zorg te dragen, onder meer door middel van afdoende back-up-, veiligheids- en viruscontroleprocedures. Opdrachtnemer zal viruscontroleprocedures toepassen wanneer Opdrachtnemer van de faciliteiten van Opdrachtgever gebruikmaakt.
+2. Opdrachtgever zal geen bij de uitvoering van de Werkzaamheden betrokken Medewerkers aannemen of benaderen om bij Opdrachtgever, al dan niet tijdelijk, direct of indirect in dienst te treden, dan wel direct of indirect ten behoeve van Opdrachtgever, al dan niet in loondienst, werkzaamheden te verrichten, gedurende de looptijd van de Overeenkomst of enige verlenging daarvan en gedurende de 12 maanden daarna.
+
+Artikel 17. Toepasselijk recht en forumkeuze
+
+1. De Overeenkomst wordt beheerst door Nederlands recht.
+2. Alle geschillen zullen worden beslecht door de bevoegde rechter in het arrondissement waarin Opdrachtnemer is gevestigd.
+
+Artikel 18. Reparatieclausule nietigheden
+
+1. Indien enige bepaling uit deze algemene voorwaarden of uit de onderliggende Opdracht/Overeenkomst geheel of ten dele nietig en/of niet geldig en/of niet afdwingbaar mocht zijn, dit ten gevolge van enig wettelijk voorschrift, rechterlijke uitspraak dan wel anderszins, dan zal dit geen enkel gevolg hebben voor de geldigheid van alle andere bepalingen van deze algemene voorwaarden of de onderliggende Opdracht/Overeenkomst.
+2. Indien een bepaling van deze algemene voorwaarden of de onderliggende Opdracht/Overeenkomst niet geldig mocht zijn om een reden als bedoeld in het vorige lid, maar wel geldig zou zijn indien deze een beperktere omvang of strekking zou hebben, dan zal deze bepaling automatisch gelden met de meest verstrekkende of omvangrijkste beperktere omvang of strekking waarmee of waarin zij wel geldig is.
+3. Onverminderd het bepaalde in lid 2 kunnen partijen desgewenst in overleg treden teneinde nieuwe bepalingen ter vervanging van de nietige c.q. vernietigde bepalingen overeen te komen. Daarbij zal zoveel mogelijk aangesloten worden bij het doel en de strekking van de nietige c.q. vernietigde bepalingen.`;
+
 const INITIAL_CATALOGUS = [
   {
     id: "svc-impl",
@@ -524,6 +657,42 @@ export default function OffertetoolApp() {
   });
   const [tekstenGeladen, setTekstenGeladen] = useState(false);
 
+  // algemeneVoorwaarden: los te beheren, komt als extra pagina('s) mee in dezelfde afdruk/PDF
+  const [algemeneVoorwaarden, setAlgemeneVoorwaarden] = useState({
+    titel: "Algemene Voorwaarden",
+    tekst: STANDAARD_VOORWAARDEN_TEKST,
+  });
+  const [voorwaardenGeladen, setVoorwaardenGeladen] = useState(false);
+
+  useEffect(() => {
+    let actief = true;
+    (async () => {
+      try {
+        const waarde = await opslagGet("algemenevoorwaarden");
+        if (actief && waarde) {
+          setAlgemeneVoorwaarden(JSON.parse(waarde));
+        }
+      } catch (e) {
+        // nog geen eigen voorwaarden opgeslagen — dan blijft de standaardtekst staan
+      }
+      if (actief) setVoorwaardenGeladen(true);
+    })();
+    return () => {
+      actief = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!voorwaardenGeladen) return;
+    (async () => {
+      try {
+        await opslagSet("algemenevoorwaarden", JSON.stringify(algemeneVoorwaarden));
+      } catch (e) {
+        console.error("Opslaan mislukt:", e);
+      }
+    })();
+  }, [algemeneVoorwaarden, voorwaardenGeladen]);
+
   // Dienstencatalogus laden uit persistente opslag (valt terug op de ingebouwde standaardlijst).
   useEffect(() => {
     let actief = true;
@@ -894,13 +1063,18 @@ export default function OffertetoolApp() {
     const i = stapIndex(stap);
     if (i > 0) setStap(STAPPEN[i - 1].key);
   }
+  const BEHEERSCHERMEN = ["catalogus", "teksten", "voorwaarden"];
   function openCatalogus() {
-    if (stap !== "catalogus" && stap !== "teksten") setTerugNaarStap(stap);
+    if (!BEHEERSCHERMEN.includes(stap)) setTerugNaarStap(stap);
     setStap("catalogus");
   }
   function openTeksten() {
-    if (stap !== "catalogus" && stap !== "teksten") setTerugNaarStap(stap);
+    if (!BEHEERSCHERMEN.includes(stap)) setTerugNaarStap(stap);
     setStap("teksten");
+  }
+  function openVoorwaarden() {
+    if (!BEHEERSCHERMEN.includes(stap)) setTerugNaarStap(stap);
+    setStap("voorwaarden");
   }
 
   function bijwerkStandaardAlgemeen(tekst) {
@@ -1164,6 +1338,25 @@ export default function OffertetoolApp() {
               >
                 <BookOpen size={14} />
                 Teksten beheren
+              </button>
+              <button
+                onClick={openVoorwaarden}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  border: "1px solid #C8CDC5",
+                  background: stap === "voorwaarden" ? "#1C5D8C" : "#fff",
+                  color: stap === "voorwaarden" ? "#fff" : "#5B6259",
+                  padding: "7px 12px",
+                  borderRadius: 20,
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <FileText size={14} />
+                Voorwaarden beheren
               </button>
             </div>
           </div>
@@ -1528,6 +1721,45 @@ export default function OffertetoolApp() {
                   </div>
                 </div>
               ))}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-start", marginTop: 22 }}>
+              <button className="ot-btn-secondary" onClick={() => setStap(terugNaarStap)}>
+                <ChevronLeft size={15} />
+                Terug naar offerte
+              </button>
+            </div>
+          </StapWrapper>
+        )}
+
+        {/* -------------------- VOORWAARDEN BEHEREN -------------------- */}
+        {stap === "voorwaarden" && (
+          <StapWrapper
+            titel="Algemene voorwaarden beheren"
+            toelichting="Deze tekst komt automatisch als extra pagina('s) mee bij het afdrukken/opslaan als PDF van een offerte — achteraan, na de eventuele bijlage. Zo ontstaat er in één keer één PDF met de offerte(s) én de voorwaarden erbij."
+          >
+            <div className="ot-card" style={{ padding: 18, display: "grid", gap: 14 }}>
+              <div>
+                <label className="ot-label">Titel</label>
+                <input
+                  className="ot-input"
+                  value={algemeneVoorwaarden.titel}
+                  onChange={(e) => setAlgemeneVoorwaarden((prev) => ({ ...prev, titel: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="ot-label">Tekst</label>
+                <textarea
+                  className="ot-input"
+                  rows={20}
+                  style={{ fontFamily: "ui-monospace, monospace", fontSize: 12.5, lineHeight: 1.6 }}
+                  value={algemeneVoorwaarden.tekst}
+                  onChange={(e) => setAlgemeneVoorwaarden((prev) => ({ ...prev, tekst: e.target.value }))}
+                />
+                <p style={{ fontSize: 11.5, color: "#8A9089", marginTop: 6 }}>
+                  Laat een lege regel tussen artikelen staan voor een nette alinea-indeling op de afdruk.
+                </p>
+              </div>
             </div>
 
             <div style={{ display: "flex", justifyContent: "flex-start", marginTop: 22 }}>
@@ -2230,6 +2462,35 @@ export default function OffertetoolApp() {
                         </div>
                       </div>
                     ))}
+                </div>
+              </div>
+            )}
+
+            {algemeneVoorwaarden.tekst.trim() !== "" && (
+              <div className="ot-card offerte-doc" style={{ padding: 18 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <div className="offertetool-serif" style={{ fontSize: 13, fontWeight: 600 }}>
+                    {algemeneVoorwaarden.titel || "Algemene Voorwaarden"}
+                  </div>
+                  {logo && (
+                    <img
+                      src={logo}
+                      alt="Logo"
+                      style={{ maxWidth: 90, maxHeight: 36, objectFit: "contain", flexShrink: 0, marginLeft: 24 }}
+                    />
+                  )}
+                </div>
+                <div
+                  style={{
+                    fontSize: 6.3,
+                    color: "#3A4038",
+                    lineHeight: 1.26,
+                    whiteSpace: "pre-wrap",
+                    columnCount: 2,
+                    columnGap: 20,
+                  }}
+                >
+                  {algemeneVoorwaarden.tekst}
                 </div>
               </div>
             )}
