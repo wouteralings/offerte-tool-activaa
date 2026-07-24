@@ -46,6 +46,7 @@ module.exports = async function (context, req) {
           id: record.id,
           klantNamen: record.klantNamen || [],
           klantGroepen: record.klantGroepen || [],
+          status: record.status || "verzonden",
           aangemaaktOp: record.aangemaaktOp,
           aangemaaktDoor: record.aangemaaktDoor,
           gewijzigdOp: record.gewijzigdOp,

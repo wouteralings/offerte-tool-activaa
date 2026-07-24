@@ -97,9 +97,10 @@ module.exports = async function (context, req) {
         aangemaaktDoor: bestaandRecord?.aangemaaktDoor || gebruikerNaam,
         gewijzigdOp: nu,
         gewijzigdDoor: gebruikerNaam,
-        klantNamen: Array.isArray(invoer.klantNamen) ? invoer.klantNamen : [],
-        klantGroepen: Array.isArray(invoer.klantGroepen) ? invoer.klantGroepen : [],
-        data: invoer.data || {},
+        klantNamen: invoer.klantNamen !== undefined ? invoer.klantNamen : bestaandRecord?.klantNamen || [],
+        klantGroepen: invoer.klantGroepen !== undefined ? invoer.klantGroepen : bestaandRecord?.klantGroepen || [],
+        status: invoer.status !== undefined ? invoer.status : bestaandRecord?.status || "verzonden",
+        data: invoer.data !== undefined ? invoer.data : bestaandRecord?.data || {},
       };
 
       const buffer = Buffer.from(JSON.stringify(record), "utf-8");
