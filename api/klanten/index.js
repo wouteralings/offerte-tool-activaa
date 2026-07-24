@@ -53,15 +53,28 @@ module.exports = async function (context, req) {
   try {
     const token = await haalDynamicsToken();
 
+    const zoekterm = (req.query.zoek || "").trim();
+    // Enkele aanhalingstekens moeten verdubbeld worden binnen een OData-tekstwaarde.
+    const veilig = zoekterm.replace(/'/g, "''");
+
+    let filterDeel = "";
+    if (veilig) {
+      filterDeel =
+        `&$filter=contains(name,'${veilig}') or contains(address1_city,'${veilig}') or ` +
+        `contains(address1_postalcode,'${veilig}') or contains(sk_Groepsnaam/groepsnaam,'${veilig}')`;
+    }
+
     // LET OP: de velden hieronder zijn gebaseerd op wat is opgegeven voor deze omgeving.
-    // Klopt een veldnaam niet, pas 'm hieronder aan in zowel de $select/$expand als de
-    // mapping verderop.
+    // Klopt een veldnaam niet, pas 'm hieronder aan in zowel de $select/$filter/$expand als
+    // de mapping verderop. We halen er 11 op (i.p.v. 10) om te kunnen zien of er nog meer zijn.
     const query =
       `${resource}/api/data/v9.2/accounts` +
       `?$select=accountid,name,address1_line1,address1_postalcode,address1_city,` +
       `cr283_huisnummer,cr283_huisnummertoevoeging,emailaddress1` +
       `&$expand=primarycontactid($select=fullname),sk_Groepsnaam` +
-      `&$top=200`;
+      filterDeel +
+      `&$orderby=name asc` +
+      `&$top=11`;
 
     const dynamicsRes = await fetch(query, {
       headers: {

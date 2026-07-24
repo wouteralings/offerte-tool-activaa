@@ -1,35 +1,41 @@
-const { TableClient } = require("@azure/data-tables");
+const { BlobServiceClient } = require("@azure/storage-blob");
 
-const TABEL_NAAM = "instellingen";
-const PARTITIE = "global"; // alle instellingen zijn gedeeld binnen het hele bedrijf
+const CONTAINER_NAAM = "instellingen";
 
-let cachedClient = null;
+let cachedContainerClient = null;
 
 /**
- * Verbinding met de Azure Table maken (en de tabel aanmaken als die nog niet bestaat).
+ * Verbinding met de Blob-container maken (en aanmaken als die nog niet bestaat).
  * Vereist de Application Setting (Omgevingsvariabele) STORAGE_CONNECTION_STRING in Azure.
  */
-async function haalTableClient() {
-  if (cachedClient) return cachedClient;
+async function haalContainerClient() {
+  if (cachedContainerClient) return cachedContainerClient;
 
   const connectionString = process.env.STORAGE_CONNECTION_STRING;
   if (!connectionString) {
     throw new Error("MISSING_CONFIG");
   }
 
-  const client = TableClient.fromConnectionString(connectionString, TABEL_NAAM, {
-    allowInsecureConnection: false,
-  });
+  const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+  const containerClient = blobServiceClient.getContainerClient(CONTAINER_NAAM);
+  await containerClient.createIfNotExists();
 
-  try {
-    await client.createTable();
-  } catch (err) {
-    // Tabel bestaat al — prima, negeren.
-    if (err.statusCode !== 409) throw err;
+  cachedContainerClient = containerClient;
+  return containerClient;
+}
+
+async function streamNaarTekst(readableStream) {
+  const stukken = [];
+  for await (const stuk of readableStream) {
+    stukken.push(Buffer.isBuffer(stuk) ? stuk : Buffer.from(stuk));
   }
+  return Buffer.concat(stukken).toString("utf-8");
+}
 
-  cachedClient = client;
-  return client;
+// Blobnamen mogen geen rare tekens bevatten; onze sleutels zijn intern altijd
+// simpele woorden met koppeltekens, maar we maken 'm voor de zekerheid veilig.
+function veiligeBlobNaam(sleutel) {
+  return sleutel.replace(/[^a-zA-Z0-9-_]/g, "_");
 }
 
 module.exports = async function (context, req) {
@@ -45,26 +51,25 @@ module.exports = async function (context, req) {
   }
 
   try {
-    const client = await haalTableClient();
+    const containerClient = await haalContainerClient();
+    const blobClient = containerClient.getBlockBlobClient(veiligeBlobNaam(sleutel));
 
     if (req.method === "GET") {
-      try {
-        const entiteit = await client.getEntity(PARTITIE, sleutel);
+      const bestaat = await blobClient.exists();
+      if (!bestaat) {
         context.res = {
+          status: 404,
           headers: { "Content-Type": "application/json" },
-          body: { key: sleutel, value: entiteit.waarde },
+          body: { error: "Niet gevonden." },
         };
-      } catch (err) {
-        if (err.statusCode === 404) {
-          context.res = {
-            status: 404,
-            headers: { "Content-Type": "application/json" },
-            body: { error: "Niet gevonden." },
-          };
-          return;
-        }
-        throw err;
+        return;
       }
+      const downloadResponse = await blobClient.download();
+      const waarde = await streamNaarTekst(downloadResponse.readableStreamBody);
+      context.res = {
+        headers: { "Content-Type": "application/json" },
+        body: { key: sleutel, value: waarde },
+      };
       return;
     }
 
@@ -78,10 +83,9 @@ module.exports = async function (context, req) {
         };
         return;
       }
-      await client.upsertEntity(
-        { partitionKey: PARTITIE, rowKey: sleutel, waarde: String(waarde) },
-        "Replace"
-      );
+      const inhoud = String(waarde);
+      const buffer = Buffer.from(inhoud, "utf-8");
+      await blobClient.upload(buffer, buffer.length, { overwrite: true });
       context.res = {
         headers: { "Content-Type": "application/json" },
         body: { key: sleutel, value: waarde },
@@ -90,12 +94,7 @@ module.exports = async function (context, req) {
     }
 
     if (req.method === "DELETE") {
-      try {
-        await client.deleteEntity(PARTITIE, sleutel);
-      } catch (err) {
-        // Al niet (meer) aanwezig — dat is prima, resultaat is toch wat we willen.
-        if (err.statusCode !== 404) throw err;
-      }
+      await blobClient.deleteIfExists();
       context.res = {
         headers: { "Content-Type": "application/json" },
         body: { key: sleutel, deleted: true },

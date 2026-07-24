@@ -216,18 +216,22 @@ async function opslagSet(sleutel, waarde) {
     try {
       await window.storage.set(sleutel, waarde, false);
     } catch (e) {
-      // opslaan mislukt — wijziging blijft dan wel zichtbaar voor deze sessie
+      console.error("Opslaan mislukt:", e); // wijziging blijft wel zichtbaar voor deze sessie
     }
     return;
   }
   try {
-    await fetch(`/api/instellingen/${encodeURIComponent(sleutel)}`, {
+    const res = await fetch(`/api/instellingen/${encodeURIComponent(sleutel)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value: waarde }),
     });
+    if (!res.ok) {
+      const foutdata = await res.json().catch(() => null);
+      console.error("Opslaan mislukt:", foutdata?.detail || foutdata?.error || `HTTP ${res.status}`);
+    }
   } catch (e) {
-    // opslaan mislukt — wijziging blijft dan wel zichtbaar voor deze sessie
+    console.error("Opslaan mislukt:", e); // wijziging blijft wel zichtbaar voor deze sessie
   }
 }
 
@@ -349,10 +353,20 @@ export default function OffertetoolApp() {
       try {
         await opslagSet("afzender", JSON.stringify(afzender));
       } catch (e) {
-        // opslaan mislukt — wijzigingen blijven dan wel zichtbaar voor deze sessie
+        console.error("Opslaan mislukt:", e); // wijzigingen blijven wel zichtbaar voor deze sessie
       }
     })();
   }, [afzender, afzenderGeladen]);
+
+  // "Ondertekenaar" (Namens) volgt automatisch de echt ingelogde Microsoft-gebruiker,
+  // zodat elke collega bij het openen van de tool zichzelf ziet staan i.p.v. een vaste naam.
+  // Nog handmatig aan te passen per offerte, indien gewenst.
+  useEffect(() => {
+    if (echteGebruiker && afzenderGeladen) {
+      setAfzender((prev) => ({ ...prev, ondertekenaar: echteGebruiker.naam }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [echteGebruiker, afzenderGeladen]);
 
   const [logo, setLogo] = useState(null); // base64/SVG data-URL van het logo, of null zolang het nog laadt
   const [logoGeladen, setLogoGeladen] = useState(false);
@@ -378,7 +392,7 @@ export default function OffertetoolApp() {
       try {
         await opslagSet("logo", standaard);
       } catch (e) {
-        // opslaan mislukt — logo blijft dan wel zichtbaar voor deze sessie
+        console.error("Opslaan mislukt:", e); // logo blijft wel zichtbaar voor deze sessie
       }
     })();
     return () => {
@@ -396,7 +410,7 @@ export default function OffertetoolApp() {
       try {
         await opslagSet("logo", dataUrl);
       } catch (err) {
-        // opslaan mislukt — logo blijft dan wel zichtbaar voor deze sessie
+        console.error("Opslaan mislukt:", err); // logo blijft wel zichtbaar voor deze sessie
       }
     };
     reader.readAsDataURL(bestand);
@@ -520,7 +534,7 @@ export default function OffertetoolApp() {
       try {
         await opslagSet("dienstencatalogus", JSON.stringify(dienstenCatalogus));
       } catch (e) {
-        // opslaan mislukt — wijzigingen blijven dan wel zichtbaar voor deze sessie
+        console.error("Opslaan mislukt:", e); // wijzigingen blijven wel zichtbaar voor deze sessie
       }
     })();
   }, [dienstenCatalogus, catalogusGeladen]);
@@ -551,7 +565,7 @@ export default function OffertetoolApp() {
       try {
         await opslagSet("standaardteksten", JSON.stringify(standaardTeksten));
       } catch (e) {
-        // opslaan mislukt — wijzigingen blijven dan wel zichtbaar voor deze sessie
+        console.error("Opslaan mislukt:", e); // wijzigingen blijven wel zichtbaar voor deze sessie
       }
     })();
   }, [standaardTeksten, tekstenGeladen]);
@@ -562,40 +576,57 @@ export default function OffertetoolApp() {
   const [klantenBron, setKlantenBron] = useState(MOCK_KLANTEN);
   const [klantenUitDynamics, setKlantenUitDynamics] = useState(false);
   const [klantenFoutmelding, setKlantenFoutmelding] = useState(null);
+  const [klantenMeerBeschikbaar, setKlantenMeerBeschikbaar] = useState(false);
+  const [klantenLaden, setKlantenLaden] = useState(false);
 
-  useEffect(() => {
-    let actief = true;
-    fetch("/api/klanten")
-      .then(async (res) => {
-        if (res.ok) return res.json();
+  async function haalKlantenOp(zoekterm) {
+    setKlantenLaden(true);
+    try {
+      const url = zoekterm ? `/api/klanten?zoek=${encodeURIComponent(zoekterm)}` : "/api/klanten";
+      const res = await fetch(url);
+      if (!res.ok) {
         const foutdata = await res.json().catch(() => null);
         throw new Error(foutdata?.detail || foutdata?.error || `HTTP ${res.status}`);
-      })
-      .then((data) => {
-        if (!actief) return;
-        if (Array.isArray(data) && data.length > 0) {
-          setKlantenBron(data);
-          setKlantenUitDynamics(true);
-          setKlantenFoutmelding(null);
-        } else {
-          setKlantenFoutmelding("Dynamics gaf een lege lijst terug (0 klanten).");
-        }
-      })
-      .catch((err) => {
-        if (!actief) return;
-        // API niet bereikbaar (bijv. lokale ontwikkeling) geeft een generieke fetch-fout —
-        // dat tonen we niet als "fout", want dat is normaal. Een fout mét inhoud (vanuit
-        // onze eigen Azure Function) tonen we wél, want die is nuttig om te debuggen.
-        if (err.message && err.message !== "Failed to fetch") {
-          setKlantenFoutmelding(err.message);
-        }
-      });
-    return () => {
-      actief = false;
-    };
+      }
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setKlantenMeerBeschikbaar(data.length > 10);
+        setKlantenBron(data.slice(0, 10));
+        setKlantenUitDynamics(true);
+        setKlantenFoutmelding(null);
+      }
+    } catch (err) {
+      // API niet bereikbaar (bijv. lokale ontwikkeling) geeft een generieke fetch-fout —
+      // dat tonen we niet als "fout", want dat is normaal. Een fout mét inhoud (vanuit
+      // onze eigen Azure Function) tonen we wél, want die is nuttig om te debuggen.
+      if (err.message && err.message !== "Failed to fetch") {
+        setKlantenFoutmelding(err.message);
+      }
+    } finally {
+      setKlantenLaden(false);
+    }
+  }
+
+  // Eerste keer laden: standaardlijst (alfabetisch, eerste 10).
+  useEffect(() => {
+    haalKlantenOp("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Bij elke wijziging in het zoekveld: de zoekopdracht bij Dynamics zelf uitvoeren
+  // (server-side), zodat álle klanten vindbaar zijn — niet alleen een vooraf geladen setje.
+  // Een korte pauze (debounce) voorkomt dat elke toetsaanslag meteen een aanroep doet.
+  useEffect(() => {
+    if (!klantenUitDynamics) return; // nog geen live koppeling; dan lokaal filteren op voorbeelddata
+    const timer = setTimeout(() => {
+      haalKlantenOp(zoekKlant.trim());
+    }, 350);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoekKlant, klantenUitDynamics]);
+
   const gefilterdeKlanten = useMemo(() => {
+    if (klantenUitDynamics) return klantenBron; // al server-side gefilterd en beperkt
     const q = zoekKlant.trim().toLowerCase();
     if (!q) return klantenBron;
     return klantenBron.filter(
@@ -604,7 +635,9 @@ export default function OffertetoolApp() {
         (k.plaats || "").toLowerCase().includes(q) ||
         (k.segment || "").toLowerCase().includes(q)
     );
-  }, [zoekKlant, klantenBron]);
+  }, [zoekKlant, klantenBron, klantenUitDynamics]);
+
+  const heeftMeerResultaten = klantenUitDynamics ? klantenMeerBeschikbaar : gefilterdeKlanten.length > 10;
 
   function dienstById(id) {
     return dienstenCatalogus.find((d) => d.id === id);
@@ -696,8 +729,9 @@ export default function OffertetoolApp() {
 
   function catalogusPrijsVoor(klantId, dienst) {
     const variant = variantVoorKlant(klantId, dienst);
-    if (variant?.prijs === null) return { prijs: 0, opAanvraag: true, variant };
-    return { prijs: variant?.prijs ?? 0, opAanvraag: false, variant };
+    if (variant?.prijs === null) return { prijs: 0, opAanvraag: true, opNacalculatie: false, variant };
+    if (variant?.prijs === "nacalculatie") return { prijs: 0, opAanvraag: false, opNacalculatie: true, variant };
+    return { prijs: variant?.prijs ?? 0, opAanvraag: false, opNacalculatie: false, variant };
   }
 
   function prijsVoor(klantId, dienst) {
@@ -705,7 +739,7 @@ export default function OffertetoolApp() {
     const override = aangepastePrijzen[key];
     const catalogus = catalogusPrijsVoor(klantId, dienst);
     if (override !== undefined && override !== "" && override !== null) {
-      return { prijs: Number(override), opAanvraag: false, variant: catalogus.variant };
+      return { prijs: Number(override), opAanvraag: false, opNacalculatie: false, variant: catalogus.variant };
     }
     return catalogus;
   }
@@ -729,7 +763,7 @@ export default function OffertetoolApp() {
     return geselecteerdeEntries
       .filter(({ dienst }) => !isUitgeschakeldVoorKlant(klantId, dienst.id))
       .map(({ dienst, aantal }) => {
-        const { prijs, opAanvraag, variant } = prijsVoor(klantId, dienst);
+        const { prijs, opAanvraag, opNacalculatie, variant } = prijsVoor(klantId, dienst);
         return {
           id: dienst.id,
           naam: variant?.naam ? `${dienst.naam} — ${variant.naam}` : dienst.naam,
@@ -738,7 +772,8 @@ export default function OffertetoolApp() {
           aantal,
           prijs,
           opAanvraag,
-          subtotaal: opAanvraag ? 0 : aantal * prijs,
+          opNacalculatie,
+          subtotaal: opAanvraag || opNacalculatie ? 0 : aantal * prijs,
         };
       });
   }
@@ -1337,7 +1372,7 @@ export default function OffertetoolApp() {
                           <thead>
                             <tr>
                               <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: "#8A9089", borderBottom: "1px solid #E2E4DF" }}>Variant / staffel</th>
-                              <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: "#8A9089", borderBottom: "1px solid #E2E4DF", width: 170 }}>Prijs</th>
+                              <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: "#8A9089", borderBottom: "1px solid #E2E4DF", width: 280 }}>Prijs</th>
                               <th style={{ width: 34, borderBottom: "1px solid #E2E4DF" }} />
                             </tr>
                           </thead>
@@ -1353,29 +1388,40 @@ export default function OffertetoolApp() {
                                   />
                                 </td>
                                 <td style={{ padding: "6px 4px" }}>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                    <div style={{ position: "relative", flex: 1 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                    <div style={{ position: "relative", flex: 1, minWidth: 110 }}>
                                       <span style={{ position: "absolute", left: 10, top: 10, fontSize: 13, color: "#8A9089" }}>€</span>
                                       <input
                                         className="ot-input"
                                         style={{ paddingLeft: 22 }}
                                         type="number"
                                         step="0.01"
-                                        disabled={v.prijs === null}
-                                        value={v.prijs === null ? "" : v.prijs}
-                                        placeholder={v.prijs === null ? "op aanvraag" : ""}
+                                        disabled={v.prijs === null || v.prijs === "nacalculatie"}
+                                        value={v.prijs === null || v.prijs === "nacalculatie" ? "" : v.prijs}
+                                        placeholder={v.prijs === null ? "op aanvraag" : v.prijs === "nacalculatie" ? "nacalculatie" : ""}
                                         onChange={(e) => bijwerkVariant(dienst.id, v.id, "prijs", e.target.value === "" ? 0 : Number(e.target.value))}
                                       />
                                     </div>
-                                    <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, color: "#5B6259", whiteSpace: "nowrap" }}>
-                                      <input
-                                        type="checkbox"
-                                        checked={v.prijs === null}
-                                        onChange={(e) => bijwerkVariant(dienst.id, v.id, "prijs", e.target.checked ? null : 0)}
-                                        style={{ accentColor: "#1C5D8C" }}
-                                      />
-                                      op aanvraag
-                                    </label>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 3, flexShrink: 0 }}>
+                                      <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, color: "#5B6259", whiteSpace: "nowrap" }}>
+                                        <input
+                                          type="checkbox"
+                                          checked={v.prijs === null}
+                                          onChange={(e) => bijwerkVariant(dienst.id, v.id, "prijs", e.target.checked ? null : 0)}
+                                          style={{ accentColor: "#1C5D8C" }}
+                                        />
+                                        op aanvraag
+                                      </label>
+                                      <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, color: "#5B6259", whiteSpace: "nowrap" }}>
+                                        <input
+                                          type="checkbox"
+                                          checked={v.prijs === "nacalculatie"}
+                                          onChange={(e) => bijwerkVariant(dienst.id, v.id, "prijs", e.target.checked ? "nacalculatie" : 0)}
+                                          style={{ accentColor: "#1C5D8C" }}
+                                        />
+                                        op nacalculatie
+                                      </label>
+                                    </div>
                                   </div>
                                 </td>
                                 <td style={{ padding: "6px 4px", textAlign: "center" }}>
@@ -1508,11 +1554,16 @@ export default function OffertetoolApp() {
               <Search size={16} style={{ position: "absolute", left: 12, top: 12, color: "#8A9089" }} />
               <input
                 className="ot-input"
-                style={{ paddingLeft: 36 }}
+                style={{ paddingLeft: 36, paddingRight: klantenLaden ? 90 : undefined }}
                 placeholder="Zoek op klantnaam, plaats of klantgroep…"
                 value={zoekKlant}
                 onChange={(e) => setZoekKlant(e.target.value)}
               />
+              {klantenLaden && (
+                <span style={{ position: "absolute", right: 12, top: 11, fontSize: 12, color: "#8A9089" }}>
+                  zoeken…
+                </span>
+              )}
             </div>
 
             {gekozenKlanten.length > 0 && (
@@ -1590,12 +1641,12 @@ export default function OffertetoolApp() {
                   </button>
                 );
               })}
-              {gefilterdeKlanten.length > 10 && (
+              {heeftMeerResultaten && (
                 <div style={{ textAlign: "center", padding: "10px 4px", color: "#8A9089", fontSize: 12.5 }}>
-                  {gefilterdeKlanten.length - 10} meer klant{gefilterdeKlanten.length - 10 > 1 ? "en" : ""} gevonden — verfijn uw zoekopdracht om ze te zien.
+                  Meer klanten gevonden — verfijn uw zoekopdracht om ze te zien.
                 </div>
               )}
-              {gefilterdeKlanten.length === 0 && (
+              {gefilterdeKlanten.length === 0 && !klantenLaden && (
                 <div style={{ textAlign: "center", padding: 30, color: "#8A9089", fontSize: 13.5 }}>
                   Geen klanten gevonden voor "{zoekKlant}".
                 </div>
@@ -1624,15 +1675,19 @@ export default function OffertetoolApp() {
                       const info = geselecteerd[dienst.id];
                       const actief = !!info;
                       const meerdereVarianten = dienst.varianten.length > 1;
-                      const prijzen = dienst.varianten.map((v) => v.prijs).filter((p) => p !== null);
+                      const prijzen = dienst.varianten
+                        .map((v) => v.prijs)
+                        .filter((p) => p !== null && p !== "nacalculatie");
                       const prijsIndicatie =
                         !meerdereVarianten
                           ? dienst.varianten[0].prijs === null
                             ? "op aanvraag"
+                            : dienst.varianten[0].prijs === "nacalculatie"
+                            ? "op nacalculatie"
                             : `${currency(dienst.varianten[0].prijs)} / ${dienst.eenheid}`
                           : prijzen.length
                           ? `${currency(Math.min(...prijzen))} – ${currency(Math.max(...prijzen))} / ${dienst.eenheid}`
-                          : "op aanvraag";
+                          : "op aanvraag / nacalculatie";
 
                       return (
                         <div
@@ -1756,7 +1811,11 @@ export default function OffertetoolApp() {
                             const key = prijsSleutel(k.id, dienst.id);
                             const aangepast = aangepastePrijzen[key] !== undefined && aangepastePrijzen[key] !== "";
                             const huidigeWaarde =
-                              aangepastePrijzen[key] !== undefined ? aangepastePrijzen[key] : variant?.prijs === null ? "" : variant.prijs;
+                              aangepastePrijzen[key] !== undefined
+                                ? aangepastePrijzen[key]
+                                : variant?.prijs === null || variant?.prijs === "nacalculatie"
+                                ? ""
+                                : variant.prijs;
                             const uitgeschakeld = isUitgeschakeldVoorKlant(k.id, dienst.id);
                             return (
                               <td key={k.id} style={{ padding: "10px 16px", borderLeft: "1px solid #E2E4DF", verticalAlign: "top" }}>
@@ -1803,7 +1862,13 @@ export default function OffertetoolApp() {
                                     className="ot-input"
                                     type="number"
                                     step="0.01"
-                                    placeholder={variant?.prijs === null ? "op aanvraag" : ""}
+                                    placeholder={
+                                      variant?.prijs === null
+                                        ? "op aanvraag"
+                                        : variant?.prijs === "nacalculatie"
+                                        ? "nacalculatie"
+                                        : ""
+                                    }
                                     style={{ paddingLeft: 22, fontWeight: aangepast ? 700 : 400, borderColor: aangepast ? "#B98237" : "#C8CDC5" }}
                                     value={huidigeWaarde}
                                     onChange={(e) => zetPrijs(k.id, dienst.id, e.target.value)}
@@ -2065,10 +2130,10 @@ export default function OffertetoolApp() {
                               </td>
                               <td style={{ padding: "10px 4px", textAlign: "right", fontSize: 13.5 }}>{r.aantal} {r.eenheid}</td>
                               <td style={{ padding: "10px 4px", textAlign: "right", fontSize: 13.5 }}>
-                                {r.opAanvraag ? "op aanvraag" : currency(r.prijs)}
+                                {r.opAanvraag ? "op aanvraag" : r.opNacalculatie ? "nacalculatie" : currency(r.prijs)}
                               </td>
                               <td style={{ padding: "10px 4px", textAlign: "right", fontSize: 13.5, fontWeight: 700 }}>
-                                {r.opAanvraag ? "—" : currency(r.subtotaal)}
+                                {r.opAanvraag || r.opNacalculatie ? "—" : currency(r.subtotaal)}
                               </td>
                             </tr>
                           ))}
