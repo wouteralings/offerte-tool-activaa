@@ -23,6 +23,7 @@ import {
   PenLine,
   BookOpen,
   ImageUp,
+  Milestone,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -223,6 +224,62 @@ Artikel 18. Reparatieclausule nietigheden
 1. Indien enige bepaling uit deze algemene voorwaarden of uit de onderliggende Opdracht/Overeenkomst geheel of ten dele nietig en/of niet geldig en/of niet afdwingbaar mocht zijn, dit ten gevolge van enig wettelijk voorschrift, rechterlijke uitspraak dan wel anderszins, dan zal dit geen enkel gevolg hebben voor de geldigheid van alle andere bepalingen van deze algemene voorwaarden of de onderliggende Opdracht/Overeenkomst.
 2. Indien een bepaling van deze algemene voorwaarden of de onderliggende Opdracht/Overeenkomst niet geldig mocht zijn om een reden als bedoeld in het vorige lid, maar wel geldig zou zijn indien deze een beperktere omvang of strekking zou hebben, dan zal deze bepaling automatisch gelden met de meest verstrekkende of omvangrijkste beperktere omvang of strekking waarmee of waarin zij wel geldig is.
 3. Onverminderd het bepaalde in lid 2 kunnen partijen desgewenst in overleg treden teneinde nieuwe bepalingen ter vervanging van de nietige c.q. vernietigde bepalingen overeen te komen. Daarbij zal zoveel mogelijk aangesloten worden bij het doel en de strekking van de nietige c.q. vernietigde bepalingen.`;
+
+const STANDAARD_ROADMAP = {
+  titel: "90 dagen roadmap: Kennismaking → Inrichting → Borging",
+  fases: [
+    {
+      id: "fase-1",
+      markering: "W1",
+      label: "WEEK 1 · KENNISMAKING",
+      titel: "We leren uw organisatie en administratie kennen",
+      puntenTekst:
+        "Kick-off gesprek: scope, aanspreekpunten, planning\nInventarisatie van bestaande systemen en administratie\nEerste proces volledig in kaart gebracht",
+      resultaatLabel: "RESULTAAT",
+      resultaatTekst: "Plan van aanpak staat + nulmeting ligt vast",
+    },
+    {
+      id: "fase-2",
+      markering: "W2",
+      label: "WEEK 2 · INVENTARISATIE",
+      titel: "Weten wat er nodig is om goed van start te gaan",
+      puntenTekst:
+        "Overzicht van de huidige situatie, inclusief aandachtspunten\nPer onderdeel: wat kan direct, wat vraagt meer tijd\nPrioriteiten bepalen op basis van impact",
+      resultaatLabel: "RESULTAAT",
+      resultaatTekst: "Inrichtingsplan met heldere prioriteiten",
+    },
+    {
+      id: "fase-3",
+      markering: "30",
+      label: "DAG 30 · EERSTE RESULTAAT",
+      titel: "Eerste onderdeel staat en draait",
+      puntenTekst:
+        "Ingericht op basis van het plan van aanpak\nU ziet het resultaat en denkt mee waar nodig\nOplevering met korte toelichting",
+      resultaatLabel: "DOEL DAG 30",
+      resultaatTekst: "Eerste onderdeel bewezen en werkend",
+    },
+    {
+      id: "fase-4",
+      markering: "60",
+      label: "DAG 60 · OPSCHALEN",
+      titel: "Van eerste onderdeel naar volledige administratie",
+      puntenTekst:
+        "Resterende onderdelen gefaseerd ingericht\nWerkwijze verder afgestemd op uw organisatie\nEerste voortgangsrapportage",
+      resultaatLabel: "DOEL DAG 60",
+      resultaatTekst: "Volledig operationeel + eerste rapportage",
+    },
+    {
+      id: "fase-5",
+      markering: "90",
+      label: "DAG 90 · BORGING",
+      titel: "Vast ritme en meetbaar resultaat",
+      puntenTekst:
+        "Resultaat gemeten ten opzichte van de nulmeting\nVaste rapportagemomenten afgesproken\nVervolgpunten en aandachtsgebieden besproken",
+      resultaatLabel: "DOEL DAG 90",
+      resultaatTekst: "Vast ritme en heldere afspraken voor de lange termijn",
+    },
+  ],
+};
 
 const INITIAL_CATALOGUS = [
   {
@@ -693,6 +750,68 @@ export default function OffertetoolApp() {
     })();
   }, [algemeneVoorwaarden, voorwaardenGeladen]);
 
+  // roadmap: beheerbare, in Azure opgeslagen roadmap (net als de voorwaarden).
+  const [roadmap, setRoadmap] = useState(STANDAARD_ROADMAP);
+  const [roadmapGeladen, setRoadmapGeladen] = useState(false);
+  // roadmapToevoegen: per-offerte aan/uit-schakelaar, geen bewaarde instelling maar een keuze per keer.
+  const [roadmapToevoegen, setRoadmapToevoegen] = useState(false);
+
+  useEffect(() => {
+    let actief = true;
+    (async () => {
+      try {
+        const waarde = await opslagGet("roadmap");
+        if (actief && waarde) {
+          setRoadmap(JSON.parse(waarde));
+        }
+      } catch (e) {
+        // nog geen eigen roadmap opgeslagen — dan blijft de standaardroadmap staan
+      }
+      if (actief) setRoadmapGeladen(true);
+    })();
+    return () => {
+      actief = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!roadmapGeladen) return;
+    (async () => {
+      try {
+        await opslagSet("roadmap", JSON.stringify(roadmap));
+      } catch (e) {
+        console.error("Opslaan mislukt:", e);
+      }
+    })();
+  }, [roadmap, roadmapGeladen]);
+
+  function voegFaseToe() {
+    setRoadmap((prev) => ({
+      ...prev,
+      fases: [
+        ...prev.fases,
+        {
+          id: nieuwId("fase"),
+          markering: "•",
+          label: "NIEUWE FASE",
+          titel: "Titel van deze fase",
+          puntenTekst: "",
+          resultaatLabel: "RESULTAAT",
+          resultaatTekst: "",
+        },
+      ],
+    }));
+  }
+  function verwijderFase(id) {
+    setRoadmap((prev) => ({ ...prev, fases: prev.fases.filter((f) => f.id !== id) }));
+  }
+  function bijwerkFase(id, veld, waarde) {
+    setRoadmap((prev) => ({
+      ...prev,
+      fases: prev.fases.map((f) => (f.id === id ? { ...f, [veld]: waarde } : f)),
+    }));
+  }
+
   // Dienstencatalogus laden uit persistente opslag (valt terug op de ingebouwde standaardlijst).
   useEffect(() => {
     let actief = true;
@@ -1063,7 +1182,7 @@ export default function OffertetoolApp() {
     const i = stapIndex(stap);
     if (i > 0) setStap(STAPPEN[i - 1].key);
   }
-  const BEHEERSCHERMEN = ["catalogus", "teksten", "voorwaarden"];
+  const BEHEERSCHERMEN = ["catalogus", "teksten", "voorwaarden", "roadmap"];
   function openCatalogus() {
     if (!BEHEERSCHERMEN.includes(stap)) setTerugNaarStap(stap);
     setStap("catalogus");
@@ -1075,6 +1194,10 @@ export default function OffertetoolApp() {
   function openVoorwaarden() {
     if (!BEHEERSCHERMEN.includes(stap)) setTerugNaarStap(stap);
     setStap("voorwaarden");
+  }
+  function openRoadmap() {
+    if (!BEHEERSCHERMEN.includes(stap)) setTerugNaarStap(stap);
+    setStap("roadmap");
   }
 
   function bijwerkStandaardAlgemeen(tekst) {
@@ -1357,6 +1480,25 @@ export default function OffertetoolApp() {
               >
                 <FileText size={14} />
                 Voorwaarden beheren
+              </button>
+              <button
+                onClick={openRoadmap}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  border: "1px solid #C8CDC5",
+                  background: stap === "roadmap" ? "#1C5D8C" : "#fff",
+                  color: stap === "roadmap" ? "#fff" : "#5B6259",
+                  padding: "7px 12px",
+                  borderRadius: 20,
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <Milestone size={14} />
+                Roadmap beheren
               </button>
             </div>
           </div>
@@ -1761,6 +1903,106 @@ export default function OffertetoolApp() {
                 </p>
               </div>
             </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-start", marginTop: 22 }}>
+              <button className="ot-btn-secondary" onClick={() => setStap(terugNaarStap)}>
+                <ChevronLeft size={15} />
+                Terug naar offerte
+              </button>
+            </div>
+          </StapWrapper>
+        )}
+
+        {/* -------------------- ROADMAP BEHEREN -------------------- */}
+        {stap === "roadmap" && (
+          <StapWrapper
+            titel="Roadmap beheren"
+            toelichting="Stel hier een stappenplan/roadmap samen (bijv. week 1, dag 30, dag 60...). Bij een offerte kan deze per keer aan- of uitgezet worden — handig als niet elke offerte een roadmap nodig heeft."
+          >
+            <div style={{ marginBottom: 14 }}>
+              <label className="ot-label">Titel van de roadmap</label>
+              <input
+                className="ot-input"
+                value={roadmap.titel}
+                onChange={(e) => setRoadmap((prev) => ({ ...prev, titel: e.target.value }))}
+              />
+            </div>
+
+            <div style={{ display: "grid", gap: 12 }}>
+              {roadmap.fases.map((fase, i) => (
+                <div key={fase.id} className="ot-card" style={{ padding: 18 }}>
+                  <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "flex-end" }}>
+                    <div style={{ width: 70 }}>
+                      <label className="ot-label">Markering</label>
+                      <input
+                        className="ot-input"
+                        value={fase.markering}
+                        onChange={(e) => bijwerkFase(fase.id, "markering", e.target.value)}
+                        placeholder="W1"
+                      />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label className="ot-label">Label (klein, bovenaan)</label>
+                      <input
+                        className="ot-input"
+                        value={fase.label}
+                        onChange={(e) => bijwerkFase(fase.id, "label", e.target.value)}
+                        placeholder="WEEK 1 · FUNDAMENT"
+                      />
+                    </div>
+                    <button
+                      onClick={() => verwijderFase(fase.id)}
+                      title="Fase verwijderen"
+                      style={{ border: "1px solid #E2C4B0", background: "#FBF2EC", color: "#B14A2E", borderRadius: 8, padding: 9, cursor: "pointer", display: "flex", flexShrink: 0 }}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <label className="ot-label">Titel van deze fase</label>
+                    <input
+                      className="ot-input"
+                      value={fase.titel}
+                      onChange={(e) => bijwerkFase(fase.id, "titel", e.target.value)}
+                    />
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <label className="ot-label">Bullet points (één per regel)</label>
+                    <textarea
+                      className="ot-input"
+                      rows={3}
+                      value={fase.puntenTekst}
+                      onChange={(e) => bijwerkFase(fase.id, "puntenTekst", e.target.value)}
+                    />
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
+                    <div>
+                      <label className="ot-label">Resultaat-label</label>
+                      <input
+                        className="ot-input"
+                        value={fase.resultaatLabel}
+                        onChange={(e) => bijwerkFase(fase.id, "resultaatLabel", e.target.value)}
+                        placeholder="RESULTAAT"
+                      />
+                    </div>
+                    <div>
+                      <label className="ot-label">Resultaat-tekst</label>
+                      <input
+                        className="ot-input"
+                        value={fase.resultaatTekst}
+                        onChange={(e) => bijwerkFase(fase.id, "resultaatTekst", e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#8A9089", marginTop: 8 }}>Fase {i + 1}</div>
+                </div>
+              ))}
+            </div>
+
+            <button className="ot-btn-ghost" style={{ marginTop: 12 }} onClick={voegFaseToe}>
+              <PlusCircle size={14} />
+              Fase toevoegen
+            </button>
 
             <div style={{ display: "flex", justifyContent: "flex-start", marginTop: 22 }}>
               <button className="ot-btn-secondary" onClick={() => setStap(terugNaarStap)}>
@@ -2187,6 +2429,31 @@ export default function OffertetoolApp() {
             titel="Toelichting per onderdeel"
             toelichting="Schrijf optioneel een algemene toelichting, iets klantspecifieks en/of een toelichting per dienst. Alles wordt bewaard en samengevoegd in één gezamenlijke bijlage na de offertes — de klantspecifieke tekst verschijnt op de offerte van díe klant zelf."
           >
+            <div
+              className="ot-card"
+              style={{
+                padding: 16,
+                marginBottom: 14,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                borderColor: roadmapToevoegen ? "#1C5D8C" : "#E2E4DF",
+              }}
+            >
+              <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={roadmapToevoegen}
+                  onChange={(e) => setRoadmapToevoegen(e.target.checked)}
+                  style={{ width: 16, height: 16, accentColor: "#1C5D8C" }}
+                />
+                <span>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>Roadmap toevoegen aan deze offerte</div>
+                  <div style={{ fontSize: 12, color: "#8A9089" }}>"{roadmap.titel}" — te beheren via "Roadmap beheren"</div>
+                </span>
+              </label>
+              <Milestone size={20} color={roadmapToevoegen ? "#1C5D8C" : "#B4B9AE"} />
+            </div>
             <div style={{ display: "grid", gap: 14 }}>
               <div className="ot-card" style={{ padding: 16, borderColor: "#1C5D8C" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -2425,6 +2692,96 @@ export default function OffertetoolApp() {
               );
             })}
 
+            {roadmapToevoegen && roadmap.fases.length > 0 && (
+              <div className="ot-card offerte-doc" style={{ padding: 40 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+                  <div className="offertetool-serif" style={{ fontSize: 22, fontWeight: 600 }}>
+                    {roadmap.titel}
+                  </div>
+                  {logo && (
+                    <img
+                      src={logo}
+                      alt="Logo"
+                      style={{ maxWidth: 140, maxHeight: 56, objectFit: "contain", flexShrink: 0, marginLeft: 24 }}
+                    />
+                  )}
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+                  {roadmap.fases.map((fase) => (
+                    <div key={fase.id} style={{ display: "flex", flexDirection: "column" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                        <div
+                          style={{
+                            width: 30,
+                            height: 30,
+                            borderRadius: "50%",
+                            background: "#1C5D8C",
+                            color: "#fff",
+                            fontSize: 11,
+                            fontWeight: 700,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                          }}
+                        >
+                          {fase.markering}
+                        </div>
+                        <div style={{ height: 2, background: "#EAF2F8", flex: 1 }} />
+                      </div>
+                      <div
+                        style={{
+                          border: "1.5px solid #1C5D8C",
+                          borderRadius: 10,
+                          padding: 14,
+                          flex: 1,
+                          display: "flex",
+                          flexDirection: "column",
+                        }}
+                      >
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#B98237", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 6 }}>
+                          {fase.label}
+                        </div>
+                        <div style={{ fontSize: 13.5, fontWeight: 700, color: "#1C2321", marginBottom: 8 }}>
+                          {fase.titel}
+                        </div>
+                        {fase.puntenTekst
+                          .split("\n")
+                          .map((p) => p.trim())
+                          .filter(Boolean).length > 0 && (
+                          <ul style={{ margin: 0, marginBottom: 10, paddingLeft: 16, fontSize: 11.5, color: "#3A4038", lineHeight: 1.5 }}>
+                            {fase.puntenTekst
+                              .split("\n")
+                              .map((p) => p.trim())
+                              .filter(Boolean)
+                              .map((punt, i) => (
+                                <li key={i}>{punt}</li>
+                              ))}
+                          </ul>
+                        )}
+                        {fase.resultaatTekst && (
+                          <div
+                            style={{
+                              marginTop: "auto",
+                              background: "#EAF2F8",
+                              borderRadius: 6,
+                              padding: "8px 10px",
+                            }}
+                          >
+                            <div style={{ fontSize: 9.5, fontWeight: 700, color: "#1C5D8C", textTransform: "uppercase", letterSpacing: ".04em" }}>
+                              {fase.resultaatLabel}
+                            </div>
+                            <div style={{ fontSize: 11.5, fontWeight: 600, color: "#1C2321" }}>{fase.resultaatTekst}</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {(algemeneToelichting.trim() !== "" ||
               geselecteerdeEntries.some(({ dienst }) => (bijlageToelichtingen[dienst.id] || "").trim() !== "")) && (
               <div className="ot-card offerte-doc" style={{ padding: 40 }}>
@@ -2482,12 +2839,14 @@ export default function OffertetoolApp() {
                 </div>
                 <div
                   style={{
-                    fontSize: 6.3,
+                    fontSize: 5.6,
                     color: "#3A4038",
-                    lineHeight: 1.26,
+                    lineHeight: 1.2,
                     whiteSpace: "pre-wrap",
                     columnCount: 2,
-                    columnGap: 20,
+                    columnGap: 16,
+                    columnFill: "auto",
+                    height: "260mm",
                   }}
                 >
                   {algemeneVoorwaarden.tekst}
