@@ -2843,9 +2843,9 @@ export default function OffertetoolApp() {
                 </div>
                 <div
                   style={{
-                    fontSize: 9.5,
+                    fontSize: 7.5,
                     color: "#3A4038",
-                    lineHeight: 1.5,
+                    lineHeight: 1.35,
                     whiteSpace: "pre-wrap",
                   }}
                 >
