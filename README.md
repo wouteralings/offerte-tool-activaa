@@ -115,3 +115,18 @@ Ga naar je Static Web App → **Omgevingsvariabelen** → **+ Toevoegen**:
 - **Waarde**: de connection string uit stap 2
 
 Opslaan. De tabel `instellingen` wordt automatisch aangemaakt bij het eerste gebruik.
+
+## Offertes bewaren en later wijzigen
+
+Er zijn twee nieuwe Functions bijgekomen: `api/offerte/{id}` (één offerte ophalen/opslaan/
+verwijderen) en `api/offertes` (overzicht van alle opgeslagen offertes). Deze gebruiken
+dezelfde `STORAGE_CONNECTION_STRING` als hierboven — geen extra Azure-configuratie nodig als
+die al is ingesteld. Er wordt automatisch een nieuwe blob-container `offertes` aangemaakt.
+
+Gedrag:
+- Een offerte wordt automatisch opgeslagen op het moment dat je op **"Afdrukken / opslaan als
+  PDF"** klikt (niet eerder, en niet bij elke tussentijdse wijziging).
+- Open je een bestaande offerte via **"Offertes"** in de bovenbalk en druk je 'm opnieuw af,
+  dan wordt diezelfde offerte bijgewerkt ("laatst gewijzigd") — er komt geen kopie bij.
+- In het overzicht ziet iedereen alle offertes van alle collega's: datum, klant(en), door wie
+  opgemaakt, en (indien van toepassing) wanneer en door wie voor het laatst gewijzigd.

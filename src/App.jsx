@@ -24,6 +24,9 @@ import {
   BookOpen,
   ImageUp,
   Milestone,
+  List,
+  FolderOpen,
+  Save,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -237,6 +240,21 @@ function currency(n) {
   }).format(n);
 }
 
+function datumTijd(iso) {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleString("nl-NL", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch (e) {
+    return "—";
+  }
+}
+
 function klantAdresRegels(klant) {
   const nummerDeel = `${klant.huisnummer || ""}${klant.huisnummertoevoeging || ""}`.trim();
   const straatRegel = [klant.straat, nummerDeel].filter(Boolean).join(" ");
@@ -306,6 +324,123 @@ async function opslagDelete(sleutel) {
   } catch (e) {
     // niets opgeslagen om te verwijderen
   }
+}
+
+// ---------------------------------------------------------------------------
+// Offertes bewaren/opzoeken/verwijderen — zelfde dual-mode aanpak als hierboven:
+// gebruikt window.storage zolang die beschikbaar is (bijv. hier in Claude, met
+// shared=true zodat "iedereen mag alles zien" ook hier klopt), en valt anders
+// terug op de eigen Azure Functions (/api/offerte/{id} en /api/offertes).
+// ---------------------------------------------------------------------------
+function offerteSleutel(id) {
+  return `offerte:${id}`;
+}
+
+async function offertesIndexOphalen() {
+  try {
+    const r = await window.storage.get("offertes-index", true);
+    return r?.value ? JSON.parse(r.value) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+async function offertesLijstOphalen() {
+  if (typeof window !== "undefined" && window.storage) {
+    const ids = await offertesIndexOphalen();
+    const records = [];
+    for (const id of ids) {
+      try {
+        const r = await window.storage.get(offerteSleutel(id), true);
+        if (r?.value) records.push(JSON.parse(r.value));
+      } catch (e) {
+        // deze offerte overslaan, rest van de lijst blijft werken
+      }
+    }
+    records.sort((a, b) => new Date(b.gewijzigdOp) - new Date(a.gewijzigdOp));
+    return records.map((r) => ({
+      id: r.id,
+      klantNamen: r.klantNamen || [],
+      klantGroepen: r.klantGroepen || [],
+      aangemaaktOp: r.aangemaaktOp,
+      aangemaaktDoor: r.aangemaaktDoor,
+      gewijzigdOp: r.gewijzigdOp,
+      gewijzigdDoor: r.gewijzigdDoor,
+    }));
+  }
+  const res = await fetch("/api/offertes");
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
+async function offerteOphalen(id) {
+  if (typeof window !== "undefined" && window.storage) {
+    const r = await window.storage.get(offerteSleutel(id), true);
+    if (!r?.value) throw new Error("Offerte niet gevonden.");
+    return JSON.parse(r.value);
+  }
+  const res = await fetch(`/api/offerte/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function offerteOpslaan(id, payload) {
+  if (typeof window !== "undefined" && window.storage) {
+    const nu = new Date().toISOString();
+    let bestaandRecord = null;
+    try {
+      const bestaand = await window.storage.get(offerteSleutel(id), true);
+      if (bestaand?.value) bestaandRecord = JSON.parse(bestaand.value);
+    } catch (e) {
+      // nog geen bestaand record; dit is dan de eerste opslag
+    }
+    const record = {
+      id,
+      aangemaaktOp: bestaandRecord?.aangemaaktOp || nu,
+      aangemaaktDoor: bestaandRecord?.aangemaaktDoor || payload.gebruikerNaam,
+      gewijzigdOp: nu,
+      gewijzigdDoor: payload.gebruikerNaam,
+      klantNamen: payload.klantNamen,
+      klantGroepen: payload.klantGroepen,
+      data: payload.data,
+    };
+    await window.storage.set(offerteSleutel(id), JSON.stringify(record), true);
+    const ids = await offertesIndexOphalen();
+    if (!ids.includes(id)) {
+      ids.push(id);
+      await window.storage.set("offertes-index", JSON.stringify(ids), true);
+    }
+    return record;
+  }
+  const res = await fetch(`/api/offerte/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function offertesVerwijderen(ids) {
+  if (typeof window !== "undefined" && window.storage) {
+    await Promise.all(
+      ids.map(async (id) => {
+        try {
+          await window.storage.delete(offerteSleutel(id), true);
+        } catch (e) {
+          // niets opgeslagen om te verwijderen, of al weg
+        }
+      })
+    );
+    const huidigeIndex = await offertesIndexOphalen();
+    const nieuweIndex = huidigeIndex.filter((id) => !ids.includes(id));
+    await window.storage.set("offertes-index", JSON.stringify(nieuweIndex), true);
+    return;
+  }
+  await Promise.all(
+    ids.map((id) => fetch(`/api/offerte/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => null))
+  );
 }
 
 function genereerStandaardLogo(bedrijfsnaam) {
@@ -503,6 +638,213 @@ export default function OffertetoolApp() {
 
   const [zoekKlant, setZoekKlant] = useState("");
   const [gekozenKlanten, setGekozenKlanten] = useState([]); // array van klant-objecten
+
+  // Opgeslagen offertes: overzicht van iedereen (datum, klant(en), opgemaakt/gewijzigd door).
+  const [offertesLijst, setOffertesLijst] = useState([]);
+  const [offertesLijstBezig, setOffertesLijstBezig] = useState(false);
+  const [offertesLijstFout, setOffertesLijstFout] = useState(false);
+  // Zoeken (vrije tekst over klant, klantgroep, opgemaakt/gewijzigd door) en filteren
+  // per kolom (klantgroep en opgemaakt door) in het offertes-overzicht.
+  const [offertesZoekterm, setOffertesZoekterm] = useState("");
+  const [offertesFilterKlantgroep, setOffertesFilterKlantgroep] = useState("");
+  const [offertesFilterGebruiker, setOffertesFilterGebruiker] = useState("");
+  const [offertesPagina, setOffertesPagina] = useState(1);
+  const OFFERTES_PER_PAGINA = 20;
+  const [offertesSelectie, setOffertesSelectie] = useState(() => new Set());
+  const [offertesVerwijderenBezig, setOffertesVerwijderenBezig] = useState(false);
+  const [offertesBevestigenTonen, setOffertesBevestigenTonen] = useState(false);
+  // huidigeOfferteId: null = nog niet opgeslagen (nieuwe offerte). Eenmaal opgeslagen
+  // (bij het afdrukken/PDF) wordt een volgende opslag van dezelfde offerte een update
+  // van hetzelfde record ("laatst gewijzigd"), in plaats van een nieuwe offerte.
+  const [huidigeOfferteId, setHuidigeOfferteId] = useState(null);
+  const [offerteOpslaanStatus, setOfferteOpslaanStatus] = useState("idle"); // idle | bezig | opgeslagen | fout
+
+  async function laadOffertesLijst() {
+    setOffertesLijstBezig(true);
+    setOffertesLijstFout(false);
+    try {
+      const data = await offertesLijstOphalen();
+      setOffertesLijst(data);
+      setOffertesSelectie(new Set());
+    } catch (e) {
+      setOffertesLijstFout(true);
+    } finally {
+      setOffertesLijstBezig(false);
+    }
+  }
+
+  function toggleOfferteSelectie(id) {
+    setOffertesSelectie((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAlleOffertesOpPagina(ids, allesGeselecteerd) {
+    setOffertesSelectie((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => (allesGeselecteerd ? next.delete(id) : next.add(id)));
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    if (offertesSelectie.size === 0) setOffertesBevestigenTonen(false);
+  }, [offertesSelectie]);
+
+  async function verwijderGeselecteerdeOffertes() {
+    if (offertesSelectie.size === 0) return;
+
+    setOffertesVerwijderenBezig(true);
+    try {
+      const ids = [...offertesSelectie];
+      await offertesVerwijderen(ids);
+      // Verwijderde offerte(n) meteen uit het huidige overzicht halen, ook als een
+      // vernieuwing van de lijst nog niet is uitgevoerd.
+      setOffertesLijst((prev) => prev.filter((o) => !offertesSelectie.has(o.id)));
+      // Wordt de op dit moment geopende offerte verwijderd? Dan de koppeling loslaten
+      // zodat een volgende opslag niet per ongeluk die verwijderde offerte herschept.
+      if (huidigeOfferteId && offertesSelectie.has(huidigeOfferteId)) {
+        setHuidigeOfferteId(null);
+      }
+      setOffertesSelectie(new Set());
+      setOffertesBevestigenTonen(false);
+      await laadOffertesLijst();
+    } finally {
+      setOffertesVerwijderenBezig(false);
+    }
+  }
+
+  // Alle offerte-inhoud die bij het opslaan/laden van één offerte hoort. Instellingen die
+  // los beheerd worden (afzender, dienstencatalogus, standaardteksten, voorwaarden, roadmap-
+  // sjabloon zelf) horen hier bewust niet bij — dat blijft gedeelde, doorlopende configuratie.
+  function huidigeOfferteSnapshot() {
+    return {
+      gekozenKlanten,
+      geselecteerd,
+      klantVarianten,
+      aangepastePrijzen,
+      uitgeschakeldVoorKlant,
+      algemeneToelichting,
+      bijlageToelichtingen,
+      klantToelichtingen,
+      roadmapToevoegen,
+    };
+  }
+
+  async function slaOfferteOp() {
+    if (gekozenKlanten.length === 0) return null;
+    const id = huidigeOfferteId || nieuwId("offerte");
+    setOfferteOpslaanStatus("bezig");
+    try {
+      await offerteOpslaan(id, {
+        data: huidigeOfferteSnapshot(),
+        klantNamen: gekozenKlanten.map((k) => k.naam),
+        klantGroepen: [...new Set(gekozenKlanten.map((k) => k.segment).filter(Boolean))],
+        gebruikerNaam: huidigeGebruiker?.naam || "Onbekend",
+      });
+      setHuidigeOfferteId(id);
+      setOfferteOpslaanStatus("opgeslagen");
+      return id;
+    } catch (e) {
+      setOfferteOpslaanStatus("fout");
+      return null;
+    }
+  }
+
+  async function openOfferte(id) {
+    try {
+      const record = await offerteOphalen(id);
+      const snap = record.data || {};
+      setGekozenKlanten(snap.gekozenKlanten || []);
+      setGeselecteerd(snap.geselecteerd || {});
+      setKlantVarianten(snap.klantVarianten || {});
+      setAangepastePrijzen(snap.aangepastePrijzen || {});
+      setUitgeschakeldVoorKlant(snap.uitgeschakeldVoorKlant || {});
+      setAlgemeneToelichting(snap.algemeneToelichting || "");
+      setBijlageToelichtingen(snap.bijlageToelichtingen || {});
+      setKlantToelichtingen(snap.klantToelichtingen || {});
+      setRoadmapToevoegen(!!snap.roadmapToevoegen);
+      setHuidigeOfferteId(id);
+      setOfferteOpslaanStatus("idle");
+      setStap("offerte");
+    } catch (e) {
+      setOffertesLijstFout(true);
+    }
+  }
+
+  function nieuweOfferte() {
+    setGekozenKlanten([]);
+    setGeselecteerd({});
+    setKlantVarianten({});
+    setAangepastePrijzen({});
+    setUitgeschakeldVoorKlant({});
+    setAlgemeneToelichting("");
+    setBijlageToelichtingen({});
+    setKlantToelichtingen({});
+    setRoadmapToevoegen(false);
+    setHuidigeOfferteId(null);
+    setOfferteOpslaanStatus("idle");
+    setStap("klant");
+  }
+
+  // Unieke waarden voor de filter-dropdowns, afgeleid uit de geladen offertes.
+  const offertesKlantgroepen = useMemo(() => {
+    const set = new Set();
+    offertesLijst.forEach((o) => (o.klantGroepen || []).forEach((g) => g && set.add(g)));
+    return [...set].sort((a, b) => a.localeCompare(b, "nl"));
+  }, [offertesLijst]);
+
+  const offertesGebruikers = useMemo(() => {
+    const set = new Set();
+    offertesLijst.forEach((o) => {
+      if (o.aangemaaktDoor) set.add(o.aangemaaktDoor);
+      if (o.gewijzigdDoor) set.add(o.gewijzigdDoor);
+    });
+    return [...set].sort((a, b) => a.localeCompare(b, "nl"));
+  }, [offertesLijst]);
+
+  // Zoeken (klant, klantgroep, opgemaakt/gewijzigd door) + kolomfilters (klantgroep,
+  // opgemaakt door) samen toegepast op het overzicht.
+  const gefilterdeOffertes = useMemo(() => {
+    const q = offertesZoekterm.trim().toLowerCase();
+    return offertesLijst.filter((o) => {
+      if (offertesFilterKlantgroep && !(o.klantGroepen || []).includes(offertesFilterKlantgroep)) {
+        return false;
+      }
+      if (
+        offertesFilterGebruiker &&
+        o.aangemaaktDoor !== offertesFilterGebruiker &&
+        o.gewijzigdDoor !== offertesFilterGebruiker
+      ) {
+        return false;
+      }
+      if (!q) return true;
+      const doorzoekbaar = [
+        ...(o.klantNamen || []),
+        ...(o.klantGroepen || []),
+        o.aangemaaktDoor || "",
+        o.gewijzigdDoor || "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return doorzoekbaar.includes(q);
+    });
+  }, [offertesLijst, offertesZoekterm, offertesFilterKlantgroep, offertesFilterGebruiker]);
+
+  // Bij elke wijziging in zoekterm/filters (of een nieuw geladen lijst) weer bij pagina 1 beginnen.
+  useEffect(() => {
+    setOffertesPagina(1);
+  }, [offertesZoekterm, offertesFilterKlantgroep, offertesFilterGebruiker, offertesLijst]);
+
+  const offertesTotaalPaginas = Math.max(1, Math.ceil(gefilterdeOffertes.length / OFFERTES_PER_PAGINA));
+  const offertesPaginaVeilig = Math.min(offertesPagina, offertesTotaalPaginas);
+  const gepagineerdeOffertes = gefilterdeOffertes.slice(
+    (offertesPaginaVeilig - 1) * OFFERTES_PER_PAGINA,
+    offertesPaginaVeilig * OFFERTES_PER_PAGINA
+  );
 
   // geselecteerd: { [dienstId]: { aantal } }
   const [geselecteerd, setGeselecteerd] = useState({});
@@ -1035,6 +1377,7 @@ export default function OffertetoolApp() {
   }
 
   function uitloggen() {
+    const wasEchteMicrosoftLogin = !!echteGebruiker;
     setIngelogd(false);
     setEchteGebruiker(null);
     setGekozenKlanten([]);
@@ -1042,12 +1385,16 @@ export default function OffertetoolApp() {
     setKlantVarianten({});
     setAangepastePrijzen({});
     setUitgeschakeldVoorKlant({});
+    setHuidigeOfferteId(null);
+    setOfferteOpslaanStatus("idle");
     setStap("login");
-    // Stuurt de browser naar het ingebouwde logout-endpoint van Azure Static
-    // Web Apps, zodat ook de echte Microsoft-sessie wordt beëindigd. Zonder
-    // deze regel bleef alleen de lokale React-state gereset, terwijl de
-    // sessie actief bleef — dan logde je bij een refresh automatisch weer in.
-    window.location.href = "/.auth/logout?post_logout_redirect_uri=/";
+    // Stuurt de browser naar het ingebouwde logout-endpoint van Azure Static Web
+    // Apps, zodat ook de échte Microsoft-sessie wordt beëindigd. Dat endpoint
+    // bestaat alleen als er ook echt via Microsoft is ingelogd (dus niet in de
+    // gesimuleerde/demo-login) — anders zou deze regel de pagina onnodig verlaten.
+    if (wasEchteMicrosoftLogin) {
+      window.location.href = "/.auth/logout?post_logout_redirect_uri=/";
+    }
   }
 
   function stapIndex(key) {
@@ -1061,7 +1408,7 @@ export default function OffertetoolApp() {
     const i = stapIndex(stap);
     if (i > 0) setStap(STAPPEN[i - 1].key);
   }
-  const BEHEERSCHERMEN = ["catalogus", "teksten", "voorwaarden", "roadmap"];
+  const BEHEERSCHERMEN = ["catalogus", "teksten", "voorwaarden", "roadmap", "offertes"];
   function openCatalogus() {
     if (!BEHEERSCHERMEN.includes(stap)) setTerugNaarStap(stap);
     setStap("catalogus");
@@ -1077,6 +1424,11 @@ export default function OffertetoolApp() {
   function openRoadmap() {
     if (!BEHEERSCHERMEN.includes(stap)) setTerugNaarStap(stap);
     setStap("roadmap");
+  }
+  function openOffertesOverzicht() {
+    if (!BEHEERSCHERMEN.includes(stap)) setTerugNaarStap(stap);
+    setStap("offertes");
+    laadOffertesLijst();
   }
 
   function bijwerkStandaardAlgemeen(tekst) {
@@ -1112,7 +1464,11 @@ export default function OffertetoolApp() {
     setStap("bijlage");
   }
 
-  function afdrukken() {
+  async function afdrukken() {
+    // Offerte automatisch opslaan/bijwerken op het moment van afdrukken/PDF maken.
+    // Print blijft ook doorgaan als het opslaan onverhoopt mislukt (bijv. opslag
+    // nog niet geconfigureerd) — dat mag het maken van de offerte niet blokkeren.
+    await slaOfferteOp();
     window.print();
   }
 
@@ -1382,6 +1738,25 @@ export default function OffertetoolApp() {
               >
                 <Milestone size={14} />
                 Roadmap beheren
+              </button>
+              <button
+                onClick={openOffertesOverzicht}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  border: "1px solid #C8CDC5",
+                  background: stap === "offertes" ? "#1C5D8C" : "#fff",
+                  color: stap === "offertes" ? "#fff" : "#5B6259",
+                  padding: "7px 12px",
+                  borderRadius: 20,
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <List size={14} />
+                Offertes
               </button>
             </div>
           </div>
@@ -1893,6 +2268,300 @@ export default function OffertetoolApp() {
                 Terug naar offerte
               </button>
             </div>
+          </StapWrapper>
+        )}
+
+        {/* -------------------- OFFERTES OVERZICHT -------------------- */}
+        {stap === "offertes" && (
+          <StapWrapper
+            titel="Offertes overzicht"
+            toelichting="Alle opgeslagen offertes van iedereen. Open er één om een kleine wijziging te maken — bij opnieuw afdrukken/PDF wordt dezelfde offerte bijgewerkt."
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button className="ot-btn-ghost" onClick={laadOffertesLijst} disabled={offertesLijstBezig}>
+                  <RotateCcw size={13} />
+                  {offertesLijstBezig ? "Bezig met laden…" : "Vernieuwen"}
+                </button>
+                {offertesSelectie.size > 0 && (
+                  <button
+                    onClick={() => setOffertesBevestigenTonen(true)}
+                    disabled={offertesVerwijderenBezig}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      border: "1px solid #E2C4B0",
+                      background: "#FBF2EC",
+                      color: "#B14A2E",
+                      padding: "7px 12px",
+                      borderRadius: 8,
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      cursor: offertesVerwijderenBezig ? "default" : "pointer",
+                    }}
+                  >
+                    <Trash2 size={14} />
+                    {offertesVerwijderenBezig
+                      ? "Bezig met verwijderen…"
+                      : `${offertesSelectie.size} geselecteerd — verwijderen`}
+                  </button>
+                )}
+              </div>
+              <button className="ot-btn-primary" onClick={nieuweOfferte}>
+                <PlusCircle size={15} />
+                Nieuwe offerte
+              </button>
+            </div>
+
+            {offertesBevestigenTonen && offertesSelectie.size > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  flexWrap: "wrap",
+                  padding: "12px 16px",
+                  borderRadius: 10,
+                  background: "#FBF2EC",
+                  border: "1px solid #E2C4B0",
+                  marginBottom: 16,
+                }}
+              >
+                <span style={{ fontSize: 13, color: "#7A3520" }}>
+                  {offertesSelectie.size === 1
+                    ? "Deze offerte definitief verwijderen? Dit kan niet ongedaan worden gemaakt."
+                    : `${offertesSelectie.size} offertes definitief verwijderen? Dit kan niet ongedaan worden gemaakt.`}
+                </span>
+                <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                  <button
+                    className="ot-btn-secondary"
+                    onClick={() => setOffertesBevestigenTonen(false)}
+                    disabled={offertesVerwijderenBezig}
+                  >
+                    Annuleren
+                  </button>
+                  <button
+                    onClick={verwijderGeselecteerdeOffertes}
+                    disabled={offertesVerwijderenBezig}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      border: "none",
+                      background: "#B14A2E",
+                      color: "#fff",
+                      padding: "8px 14px",
+                      borderRadius: 8,
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      cursor: offertesVerwijderenBezig ? "default" : "pointer",
+                    }}
+                  >
+                    <Trash2 size={14} />
+                    {offertesVerwijderenBezig ? "Bezig…" : "Ja, verwijderen"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+              <div style={{ position: "relative", flex: "1 1 240px", minWidth: 200 }}>
+                <Search size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#8A9089" }} />
+                <input
+                  className="ot-input"
+                  style={{ paddingLeft: 30 }}
+                  placeholder="Zoek op klant, klantgroep of naam…"
+                  value={offertesZoekterm}
+                  onChange={(e) => setOffertesZoekterm(e.target.value)}
+                />
+              </div>
+              <select
+                className="ot-input"
+                style={{ width: 200 }}
+                value={offertesFilterKlantgroep}
+                onChange={(e) => setOffertesFilterKlantgroep(e.target.value)}
+              >
+                <option value="">Alle klantgroepen</option>
+                {offertesKlantgroepen.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="ot-input"
+                style={{ width: 200 }}
+                value={offertesFilterGebruiker}
+                onChange={(e) => setOffertesFilterGebruiker(e.target.value)}
+              >
+                <option value="">Iedereen</option>
+                {offertesGebruikers.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+              </select>
+              {(offertesZoekterm || offertesFilterKlantgroep || offertesFilterGebruiker) && (
+                <button
+                  className="ot-btn-ghost"
+                  onClick={() => {
+                    setOffertesZoekterm("");
+                    setOffertesFilterKlantgroep("");
+                    setOffertesFilterGebruiker("");
+                  }}
+                >
+                  Filters wissen
+                </button>
+              )}
+            </div>
+
+            {offertesLijstFout && (
+              <div style={{ padding: 14, borderRadius: 10, background: "#FBF2EC", color: "#B14A2E", fontSize: 13, marginBottom: 16 }}>
+                Kon de offertes niet laden. Controleer of de opslag is geconfigureerd (zie README, stap "Opslag van instellingen").
+              </div>
+            )}
+
+            {offertesLijstBezig && offertesLijst.length === 0 && !offertesLijstFout && (
+              <div style={{ textAlign: "center", padding: 40, color: "#8A9089", fontSize: 13.5 }}>
+                Bezig met laden…
+              </div>
+            )}
+
+            {!offertesLijstBezig && offertesLijst.length === 0 && !offertesLijstFout && (
+              <div style={{ textAlign: "center", padding: 40, color: "#8A9089", fontSize: 13.5 }}>
+                Nog geen offertes opgeslagen.
+              </div>
+            )}
+
+            {offertesLijst.length > 0 && gefilterdeOffertes.length === 0 && (
+              <div style={{ textAlign: "center", padding: 40, color: "#8A9089", fontSize: 13.5 }}>
+                Geen offertes gevonden met deze zoekterm/filters.
+              </div>
+            )}
+
+            {gefilterdeOffertes.length > 0 && (
+              <div className="ot-card" style={{ padding: 0, overflow: "hidden" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: "#F0EEE6", textAlign: "left" }}>
+                      <th style={{ padding: "10px 12px", width: 1 }}>
+                        <input
+                          type="checkbox"
+                          checked={
+                            gepagineerdeOffertes.length > 0 &&
+                            gepagineerdeOffertes.every((o) => offertesSelectie.has(o.id))
+                          }
+                          onChange={() =>
+                            toggleAlleOffertesOpPagina(
+                              gepagineerdeOffertes.map((o) => o.id),
+                              gepagineerdeOffertes.length > 0 && gepagineerdeOffertes.every((o) => offertesSelectie.has(o.id))
+                            )
+                          }
+                          title="Alles op deze pagina (de)selecteren"
+                        />
+                      </th>
+                      <th style={{ padding: "10px 14px", fontWeight: 700, color: "#5B6259" }}>Datum</th>
+                      <th style={{ padding: "10px 14px", fontWeight: 700, color: "#5B6259" }}>Klant(en)</th>
+                      <th style={{ padding: "10px 14px", fontWeight: 700, color: "#5B6259" }}>Klantgroep</th>
+                      <th style={{ padding: "10px 14px", fontWeight: 700, color: "#5B6259" }}>Opgemaakt door</th>
+                      <th style={{ padding: "10px 14px", fontWeight: 700, color: "#5B6259" }}>Laatst gewijzigd</th>
+                      <th style={{ padding: "10px 14px" }} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {gepagineerdeOffertes.map((o) => {
+                      const gewijzigd = o.gewijzigdOp && o.gewijzigdOp !== o.aangemaaktOp;
+                      return (
+                        <tr
+                          key={o.id}
+                          style={{
+                            borderTop: "1px solid #E2E4DF",
+                            background: offertesSelectie.has(o.id) ? "#EAF2F8" : "transparent",
+                          }}
+                        >
+                          <td style={{ padding: "10px 12px" }}>
+                            <input
+                              type="checkbox"
+                              checked={offertesSelectie.has(o.id)}
+                              onChange={() => toggleOfferteSelectie(o.id)}
+                            />
+                          </td>
+                          <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>{datumTijd(o.aangemaaktOp)}</td>
+                          <td style={{ padding: "10px 14px" }}>
+                            {o.klantNamen && o.klantNamen.length > 0 ? o.klantNamen.join(", ") : "—"}
+                          </td>
+                          <td style={{ padding: "10px 14px" }}>
+                            {o.klantGroepen && o.klantGroepen.length > 0 ? o.klantGroepen.join(", ") : "—"}
+                          </td>
+                          <td style={{ padding: "10px 14px" }}>{o.aangemaaktDoor || "—"}</td>
+                          <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
+                            {gewijzigd ? (
+                              <>
+                                {datumTijd(o.gewijzigdOp)}
+                                <div style={{ fontSize: 11.5, color: "#8A9089" }}>door {o.gewijzigdDoor}</div>
+                              </>
+                            ) : (
+                              <span style={{ color: "#A5AA9F" }}>—</span>
+                            )}
+                          </td>
+                          <td style={{ padding: "10px 14px", textAlign: "right" }}>
+                            <button className="ot-btn-ghost" onClick={() => openOfferte(o.id)}>
+                              <FolderOpen size={13} />
+                              Openen
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {gefilterdeOffertes.length > 0 && offertesTotaalPaginas > 1 && (
+              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6, marginTop: 16, flexWrap: "wrap" }}>
+                <button
+                  className="ot-btn-ghost"
+                  disabled={offertesPaginaVeilig === 1}
+                  onClick={() => setOffertesPagina((p) => Math.max(1, p - 1))}
+                  style={{ opacity: offertesPaginaVeilig === 1 ? 0.4 : 1 }}
+                >
+                  <ChevronLeft size={14} />
+                </button>
+                {Array.from({ length: offertesTotaalPaginas }, (_, i) => i + 1).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setOffertesPagina(p)}
+                    style={{
+                      minWidth: 30,
+                      height: 30,
+                      border: "1px solid #C8CDC5",
+                      background: p === offertesPaginaVeilig ? "#1C5D8C" : "#fff",
+                      color: p === offertesPaginaVeilig ? "#fff" : "#5B6259",
+                      borderRadius: 8,
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {p}
+                  </button>
+                ))}
+                <button
+                  className="ot-btn-ghost"
+                  disabled={offertesPaginaVeilig === offertesTotaalPaginas}
+                  onClick={() => setOffertesPagina((p) => Math.min(offertesTotaalPaginas, p + 1))}
+                  style={{ opacity: offertesPaginaVeilig === offertesTotaalPaginas ? 0.4 : 1 }}
+                >
+                  <ChevronRight size={14} />
+                </button>
+                <span style={{ fontSize: 12, color: "#8A9089", marginLeft: 8 }}>
+                  {gefilterdeOffertes.length} offerte{gefilterdeOffertes.length === 1 ? "" : "s"} · pagina {offertesPaginaVeilig} van {offertesTotaalPaginas}
+                </span>
+              </div>
+            )}
           </StapWrapper>
         )}
 
@@ -2724,15 +3393,29 @@ export default function OffertetoolApp() {
             )}
             </div>
 
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20 }}>
               <button className="ot-btn-secondary" onClick={vorige}>
                 <ChevronLeft size={15} />
                 Terug naar bijlage
               </button>
-              <button className="ot-btn-primary" onClick={afdrukken}>
-                <Printer size={15} />
-                {gekozenKlanten.length > 1 ? "Alles afdrukken / opslaan als PDF" : "Afdrukken / opslaan als PDF"}
-              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ fontSize: 12, color: "#8A9089" }}>
+                  {offerteOpslaanStatus === "bezig" && "Offerte opslaan…"}
+                  {offerteOpslaanStatus === "opgeslagen" && (
+                    <>
+                      <Save size={12} style={{ verticalAlign: "-1px", marginRight: 4 }} />
+                      Opgeslagen
+                    </>
+                  )}
+                  {offerteOpslaanStatus === "fout" && (
+                    <span style={{ color: "#B14A2E" }}>Opslaan mislukt (offerte blijft wel bruikbaar)</span>
+                  )}
+                </span>
+                <button className="ot-btn-primary" onClick={afdrukken}>
+                  <Printer size={15} />
+                  {gekozenKlanten.length > 1 ? "Alles afdrukken / opslaan als PDF" : "Afdrukken / opslaan als PDF"}
+                </button>
+              </div>
             </div>
             </>
             )}
