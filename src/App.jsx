@@ -594,7 +594,13 @@ export default function OffertetoolApp() {
       try {
         const waarde = await opslagGet("algemenevoorwaarden");
         if (actief && waarde) {
-          setAlgemeneVoorwaarden(JSON.parse(waarde));
+          const geparsed = JSON.parse(waarde);
+          // Alleen titel en url overnemen — een eventueel oud 'tekst'-veld (uit een eerdere
+          // versie van de tool) wordt hiermee genegeerd en bij de volgende opslag opgeschoond.
+          setAlgemeneVoorwaarden((prev) => ({
+            titel: geparsed.titel || prev.titel,
+            url: geparsed.url ?? prev.url,
+          }));
         }
       } catch (e) {
         // nog geen eigen voorwaarden opgeslagen — dan blijft de standaardtekst staan
