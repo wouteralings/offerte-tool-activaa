@@ -61,7 +61,7 @@ module.exports = async function (context, req) {
     if (veilig) {
       filterDeel =
         `&$filter=contains(name,'${veilig}') or contains(address1_city,'${veilig}') or ` +
-        `contains(address1_postalcode,'${veilig}') or contains(sk_Groepsnaam/groepsnaam,'${veilig}')`;
+        `contains(address1_postalcode,'${veilig}') or contains(sk_Groepsnaam/sk_name,'${veilig}')`;
     }
 
     // LET OP: de velden hieronder zijn gebaseerd op wat is opgegeven voor deze omgeving.

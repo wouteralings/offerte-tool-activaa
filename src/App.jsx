@@ -285,10 +285,22 @@ export default function OffertetoolApp() {
         if (!actief) return;
         const principal = data?.clientPrincipal;
         if (principal?.userDetails) {
-          const naam = principal.userDetails;
+          // userDetails is bij Microsoft-login meestal het e-mailadres/UPN. De echte
+          // weergavenaam zit (indien beschikbaar) tussen de losse "claims" van het account.
+          const naamClaim = principal.claims?.find(
+            (c) =>
+              c.typ === "name" ||
+              c.typ === "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name" ||
+              c.typ?.endsWith("/claims/name")
+          );
+          const naam = naamClaim?.val || principal.userDetails;
+          const emailClaim = principal.claims?.find(
+            (c) => c.typ === "preferred_username" || c.typ?.endsWith("/emailaddress")
+          );
+          const email = emailClaim?.val || principal.userDetails;
           setEchteGebruiker({
             naam,
-            email: naam,
+            email,
             rol: "Ingelogd via Microsoft",
             initialen: naam
               .split(/[.\s@]/)
@@ -358,12 +370,16 @@ export default function OffertetoolApp() {
     })();
   }, [afzender, afzenderGeladen]);
 
-  // "Ondertekenaar" (Namens) volgt automatisch de echt ingelogde Microsoft-gebruiker,
-  // zodat elke collega bij het openen van de tool zichzelf ziet staan i.p.v. een vaste naam.
-  // Nog handmatig aan te passen per offerte, indien gewenst.
+  // "Ondertekenaar" (Namens) en het bijbehorende e-mailadres volgen automatisch de echt
+  // ingelogde Microsoft-gebruiker — bij elke login opnieuw, zodat elke collega (van de 10)
+  // gewoon zichzelf ziet staan zonder dat iemand dit handmatig hoeft in te stellen.
   useEffect(() => {
     if (echteGebruiker && afzenderGeladen) {
-      setAfzender((prev) => ({ ...prev, ondertekenaar: echteGebruiker.naam }));
+      setAfzender((prev) => ({
+        ...prev,
+        ondertekenaar: echteGebruiker.naam,
+        ondertekenaarEmail: echteGebruiker.email,
+      }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [echteGebruiker, afzenderGeladen]);
@@ -1288,9 +1304,22 @@ export default function OffertetoolApp() {
                   <input className="ot-input" value={afzender.plaats} onChange={(e) => setAfzender({ ...afzender, plaats: e.target.value })} />
                 </div>
               </div>
-              <div>
-                <label className="ot-label">Ondertekenaar</label>
-                <input className="ot-input" value={afzender.ondertekenaar} onChange={(e) => setAfzender({ ...afzender, ondertekenaar: e.target.value })} />
+              <div
+                style={{
+                  padding: "12px 14px",
+                  background: "#EAF2F8",
+                  borderRadius: 8,
+                  fontSize: 12.5,
+                  color: "#1C5D8C",
+                }}
+              >
+                <strong>Ondertekenaar (Namens):</strong> {huidigeGebruiker.naam}
+                {huidigeGebruiker.email && huidigeGebruiker.email !== huidigeGebruiker.naam
+                  ? ` · ${huidigeGebruiker.email}`
+                  : ""}
+                <div style={{ color: "#5B6259", marginTop: 2 }}>
+                  Dit wordt automatisch bepaald aan de hand van wie is ingelogd — elke collega ziet hier zichzelf staan.
+                </div>
               </div>
               <div>
                 <label className="ot-label">Inleidende tekst op de offerte</label>
@@ -2090,8 +2119,10 @@ export default function OffertetoolApp() {
                     </div>
                     <div>
                       <div className="ot-label">Namens</div>
-                      <div style={{ fontWeight: 700, fontSize: 14.5 }}>{afzender.ondertekenaar}</div>
-                      <div style={{ fontSize: 13, color: "#5B6259" }}>{huidigeGebruiker.email}</div>
+                      <div style={{ fontWeight: 700, fontSize: 14.5 }}>{huidigeGebruiker.naam}</div>
+                      {huidigeGebruiker.email && huidigeGebruiker.email.toLowerCase() !== (huidigeGebruiker.naam || "").toLowerCase() && (
+                        <div style={{ fontSize: 13, color: "#5B6259" }}>{huidigeGebruiker.email}</div>
+                      )}
                     </div>
                   </div>
 
