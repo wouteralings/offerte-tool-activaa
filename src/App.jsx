@@ -1291,6 +1291,10 @@ export default function OffertetoolApp() {
           color:#B98237; margin: 26px 0 10px; display:flex; align-items:center; justify-content:space-between;
         }
         .ot-cat-koptekst:first-child { margin-top:0; }
+        @page {
+          size: A4;
+          margin: 12mm;
+        }
         @media print {
           body * { visibility: hidden; }
           #offerte-print-gebied, #offerte-print-gebied * { visibility: visible; }
@@ -2839,14 +2843,14 @@ export default function OffertetoolApp() {
                 </div>
                 <div
                   style={{
-                    fontSize: 5.3,
+                    fontSize: 5.7,
                     color: "#3A4038",
-                    lineHeight: 1.17,
+                    lineHeight: 1.2,
                     whiteSpace: "pre-wrap",
                     columnCount: 2,
                     columnGap: 16,
                     columnFill: "auto",
-                    height: "260mm",
+                    height: "250mm",
                   }}
                 >
                   {algemeneVoorwaarden.tekst}
