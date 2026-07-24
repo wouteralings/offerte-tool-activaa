@@ -3237,50 +3237,6 @@ export default function OffertetoolApp() {
               </div>
             ) : (
               <>
-            {offerteVraagStatusTonen && (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 12,
-                  flexWrap: "wrap",
-                  padding: "12px 16px",
-                  borderRadius: 10,
-                  background: "#EAF2F8",
-                  border: "1px solid #B7CFE0",
-                  marginBottom: 16,
-                }}
-              >
-                <span style={{ fontSize: 13, color: "#1C5D8C" }}>
-                  Offerte afgedrukt/opgeslagen als PDF. Status bijwerken naar "Verzonden"?
-                </span>
-                <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-                  <button className="ot-btn-secondary" onClick={() => setOfferteVraagStatusTonen(false)}>
-                    Nee, laten staan
-                  </button>
-                  <button
-                    onClick={zetOfferteOpVerzonden}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      border: "none",
-                      background: "#1C5D8C",
-                      color: "#fff",
-                      padding: "8px 14px",
-                      borderRadius: 8,
-                      fontSize: 12.5,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                    }}
-                  >
-                    <Check size={14} />
-                    Ja, zet op Verzonden
-                  </button>
-                </div>
-              </div>
-            )}
             <div id="offerte-print-gebied">
             {gekozenKlanten.map((klant, idx) => {
               const klantRegels = regelsVoorKlant(klant.id);
@@ -3558,6 +3514,51 @@ export default function OffertetoolApp() {
               </div>
             )}
             </div>
+
+            {offerteVraagStatusTonen && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  flexWrap: "wrap",
+                  padding: "12px 16px",
+                  borderRadius: 10,
+                  background: "#EAF2F8",
+                  border: "1px solid #B7CFE0",
+                  marginTop: 20,
+                }}
+              >
+                <span style={{ fontSize: 13, color: "#1C5D8C" }}>
+                  Offerte afgedrukt/opgeslagen als PDF. Status bijwerken naar "Verzonden"?
+                </span>
+                <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                  <button className="ot-btn-secondary" onClick={() => setOfferteVraagStatusTonen(false)}>
+                    Nee, laten staan
+                  </button>
+                  <button
+                    onClick={zetOfferteOpVerzonden}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      border: "none",
+                      background: "#1C5D8C",
+                      color: "#fff",
+                      padding: "8px 14px",
+                      borderRadius: 8,
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <Check size={14} />
+                    Ja, zet op Verzonden
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20 }}>
               <button className="ot-btn-secondary" onClick={vorige}>
