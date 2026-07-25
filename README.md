@@ -130,3 +130,52 @@ Gedrag:
   dan wordt diezelfde offerte bijgewerkt ("laatst gewijzigd") — er komt geen kopie bij.
 - In het overzicht ziet iedereen alle offertes van alle collega's: datum, klant(en), door wie
   opgemaakt, en (indien van toepassing) wanneer en door wie voor het laatst gewijzigd.
+
+## Login vastzetten op de Activaa-tenant (single-tenant)
+
+Standaard gebruikt Azure Static Web Apps de ingebouwde `aad`-provider via het
+multi-tenant `/common/`-endpoint. Daardoor kan in principe **elk werk-/schoolaccount van
+elke organisatie** inloggen (en mogelijk privé-Microsoft-accounts). De app zelf controleert
+daarna alleen nog of iemand "authenticated" is — dus wie binnenkomt, ziet alle offertes en
+klantdata.
+
+Om alleen accounts uit de **Activaa-tenant** toe te laten, is in `staticwebapp.config.json`
+de ingebouwde provider vervangen door een eigen registratie met een tenant-specifieke
+`openIdIssuer` (tenant-ID `a7b1bd7a-fc04-41b0-97d3-be7577d96616`). Daarnaast is de standaard
+GitHub-login geblokkeerd. Om dit werkend te krijgen zijn nog twee stappen nodig:
+
+### Stap 1 — App Registration in Entra ID (single-tenant)
+
+1. Ga naar **Entra ID → App registrations → New registration**.
+2. Naam bijv. `offertetool-login`.
+3. Bij **Supported account types** kies je **"Accounts in this organizational directory
+   only (Activaa only - Single tenant)"** — dit is de eigenlijke tenant-restrictie.
+4. Bij **Redirect URI** kies je platform **Web** en vul je in:
+   `https://<jouw-app>.azurestaticapps.net/.auth/login/aad/callback`
+   (vervang `<jouw-app>` door de echte hostnaam van de Static Web App).
+5. Aanmaken. Noteer de **Application (client) ID**.
+6. Ga naar **Certificates & secrets → New client secret**, maak er één aan en kopieer de
+   **waarde** meteen (die is later niet meer zichtbaar).
+
+### Stap 2 — Twee instellingen toevoegen aan de Static Web App
+
+Ga naar je Static Web App → **Omgevingsvariabelen** → **+ Toevoegen**:
+
+| Naam | Waarde |
+|---|---|
+| `AAD_CLIENT_ID` | Application (client) ID uit stap 1 |
+| `AAD_CLIENT_SECRET` | Client secret-waarde uit stap 1 |
+
+Opslaan. Vanaf de volgende login stuurt Azure door naar
+`login.microsoftonline.com/a7b1bd7a-.../` in plaats van `/common/`, en laat Microsoft alleen
+nog Activaa-accounts toe.
+
+### Testen
+
+Log uit en probeer in te loggen met een Microsoft-account **buiten** Activaa (bijv. een privé
+`@outlook.com` of een account van een andere firma). Je hoort nu "je hebt geen toegang tot
+deze applicatie" te krijgen. Met een Activaa-account kom je gewoon binnen.
+
+> Let op: dit regelt **wie mag inloggen**, niet **wie wát mag zien of wijzigen**. Iedereen
+> binnen de tenant die inlogt, ziet nog steeds alle offertes en klantdata. Een echte
+> rollen-/autorisatielaag in de app zelf is een aparte, volgende stap.

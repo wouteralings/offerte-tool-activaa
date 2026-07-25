@@ -1,5 +1,20 @@
 {
+  "auth": {
+    "identityProviders": {
+      "azureActiveDirectory": {
+        "registration": {
+          "openIdIssuer": "https://login.microsoftonline.com/a7b1bd7a-fc04-41b0-97d3-be7577d96616/v2.0",
+          "clientIdSettingName": "AAD_CLIENT_ID",
+          "clientSecretSettingName": "AAD_CLIENT_SECRET"
+        }
+      }
+    }
+  },
   "routes": [
+    {
+      "route": "/.auth/login/github",
+      "statusCode": 404
+    },
     {
       "route": "/*",
       "allowedRoles": ["authenticated"]
