@@ -1336,16 +1336,21 @@ export default function OffertetoolApp() {
       .filter(({ dienst }) => !isUitgeschakeldVoorKlant(klantId, dienst.id))
       .map(({ dienst, aantal }) => {
         const { prijs, opAanvraag, opNacalculatie, variant } = prijsVoor(klantId, dienst);
+        const factor = Number(dienst.factor) || 1;
         return {
           id: dienst.id,
           naam: variant?.naam ? `${dienst.naam} — ${variant.naam}` : dienst.naam,
           eenheid: dienst.eenheid,
           categorie: dienst.categorie,
           aantal,
+          factor,
+          // Aantal dat op de offerte getoond wordt: het ingevoerde aantal maal de
+          // achtergrondfactor (bijv. maandprijs met factor 12 -> "12 maand").
+          toonAantal: aantal * factor,
           prijs,
           opAanvraag,
           opNacalculatie,
-          subtotaal: opAanvraag || opNacalculatie ? 0 : aantal * prijs,
+          subtotaal: opAanvraag || opNacalculatie ? 0 : aantal * prijs * factor,
         };
       });
   }
@@ -1361,6 +1366,7 @@ export default function OffertetoolApp() {
         categorie,
         naam: "Nieuwe dienst",
         eenheid: "stuk",
+        factor: 1,
         varianten: [{ id: nieuwId("v"), naam: "", prijs: 0 }],
       },
     ]);
@@ -2101,6 +2107,19 @@ export default function OffertetoolApp() {
                               className="ot-input"
                               value={dienst.eenheid}
                               onChange={(e) => bijwerkDienstVeld(dienst.id, "eenheid", e.target.value)}
+                            />
+                          </div>
+                          <div style={{ width: 92, flexShrink: 0 }}>
+                            <label className="ot-label" title="Vermenigvuldigt op de achtergrond het subtotaal én het getoonde aantal. Bijv. een maandprijs met factor 12 toont het jaarbedrag. Prijs per eenheid blijft ongewijzigd. Laat op 1 voor geen effect.">
+                              Factor
+                            </label>
+                            <input
+                              className="ot-input"
+                              type="number"
+                              min="1"
+                              step="1"
+                              value={dienst.factor ?? 1}
+                              onChange={(e) => bijwerkDienstVeld(dienst.id, "factor", e.target.value === "" ? 1 : Number(e.target.value))}
                             />
                           </div>
                           <button
@@ -3020,6 +3039,9 @@ export default function OffertetoolApp() {
                             <div style={{ fontWeight: 700, fontSize: 13.5 }}>{dienst.naam}</div>
                             <div style={{ fontSize: 11.5, color: "#8A9089", marginTop: 2 }}>
                               {dienst.eenheid} · {aantal}×
+                              {(Number(dienst.factor) || 1) > 1 && (
+                                <span style={{ color: "#B98237", fontWeight: 600 }}> · factor ×{Number(dienst.factor)}</span>
+                              )}
                             </div>
                           </td>
                           {gekozenKlanten.map((k) => {
@@ -3373,7 +3395,7 @@ export default function OffertetoolApp() {
                               <td style={{ padding: "10px 4px" }}>
                                 <div style={{ fontWeight: 600, fontSize: 13.5 }}>{r.naam}</div>
                               </td>
-                              <td style={{ padding: "10px 4px", textAlign: "right", fontSize: 13.5 }}>{r.aantal} {r.eenheid}</td>
+                              <td style={{ padding: "10px 4px", textAlign: "right", fontSize: 13.5 }}>{r.toonAantal} {r.eenheid}</td>
                               <td style={{ padding: "10px 4px", textAlign: "right", fontSize: 13.5 }}>
                                 {r.opAanvraag ? "op aanvraag" : r.opNacalculatie ? "nacalculatie" : currency(r.prijs)}
                               </td>
