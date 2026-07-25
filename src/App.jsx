@@ -5,6 +5,8 @@ import {
   Check,
   ChevronRight,
   ChevronLeft,
+  ChevronUp,
+  ChevronDown,
   FileText,
   Settings as SettingsIcon,
   Users,
@@ -1363,6 +1365,25 @@ export default function OffertetoolApp() {
       },
     ]);
   }
+  function verplaatsDienst(id, richting) {
+    // Verplaatst een dienst één plek omhoog (-1) of omlaag (+1) binnen zijn
+    // eigen categorie. De volgorde van de catalogus bepaalt overal de volgorde:
+    // op het aanvinkscherm, in de prijzentabel én in de uiteindelijke offerte.
+    setDienstenCatalogus((prev) => {
+      const dienst = prev.find((d) => d.id === id);
+      if (!dienst) return prev;
+      const zelfdeCategorie = prev.filter((d) => d.categorie === dienst.categorie);
+      const posInCat = zelfdeCategorie.findIndex((d) => d.id === id);
+      const doelPos = posInCat + richting;
+      if (doelPos < 0 || doelPos >= zelfdeCategorie.length) return prev;
+      const buurId = zelfdeCategorie[doelPos].id;
+      const idxA = prev.findIndex((d) => d.id === id);
+      const idxB = prev.findIndex((d) => d.id === buurId);
+      const next = [...prev];
+      [next[idxA], next[idxB]] = [next[idxB], next[idxA]];
+      return next;
+    });
+  }
   function verwijderDienst(id) {
     setDienstenCatalogus((prev) => prev.filter((d) => d.id !== id));
     setGeselecteerd((prev) => {
@@ -2045,9 +2066,27 @@ export default function OffertetoolApp() {
                 <div style={{ display: "grid", gap: 12 }}>
                   {dienstenCatalogus
                     .filter((d) => d.categorie === cat)
-                    .map((dienst) => (
+                    .map((dienst, idx, arr) => (
                       <div key={dienst.id} className="ot-card" style={{ padding: 18 }}>
                         <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "flex-end" }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
+                            <button
+                              onClick={() => verplaatsDienst(dienst.id, -1)}
+                              disabled={idx === 0}
+                              title="Naar boven verplaatsen"
+                              style={{ border: "1px solid #E2E4DF", background: "#fff", color: idx === 0 ? "#C7CBC3" : "#5B6259", borderRadius: 6, padding: "3px 6px", cursor: idx === 0 ? "default" : "pointer", display: "flex" }}
+                            >
+                              <ChevronUp size={14} />
+                            </button>
+                            <button
+                              onClick={() => verplaatsDienst(dienst.id, 1)}
+                              disabled={idx === arr.length - 1}
+                              title="Naar beneden verplaatsen"
+                              style={{ border: "1px solid #E2E4DF", background: "#fff", color: idx === arr.length - 1 ? "#C7CBC3" : "#5B6259", borderRadius: 6, padding: "3px 6px", cursor: idx === arr.length - 1 ? "default" : "pointer", display: "flex" }}
+                            >
+                              <ChevronDown size={14} />
+                            </button>
+                          </div>
                           <div style={{ flex: 2 }}>
                             <label className="ot-label">Dienstnaam</label>
                             <input
