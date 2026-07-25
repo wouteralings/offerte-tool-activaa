@@ -475,6 +475,27 @@ function genereerStandaardLogo() {
   return ACTIVAA_LOGO;
 }
 
+// De standaard-favicon (het Activaa-bergtoppen-logo) als data-URL. Wordt gebruikt
+// zolang er geen eigen favicon is geüpload via de instellingen, en is dezelfde
+// afbeelding als public/favicon.svg.
+const STANDAARD_FAVICON =
+  "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAwIDEwMDAiIGZpbGw9Im5vbmUiIHJvbGU9ImltZyIgYXJpYS1sYWJlbD0iQWN0aXZhYSI+PHRpdGxlPkFjdGl2YWE8L3RpdGxlPjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDAsMTAwMCkgc2NhbGUoMC4xLC0wLjEpIgpmaWxsPSIjMjdBQkUzIiBzdHJva2U9Im5vbmUiPgo8cGF0aCBkPSJNNjIzMyA4MzcyIGMtMTg3MiAtMzUyOSAtMjkxOSAtNTQ4OSAtMjkyNiAtNTQ3OSAtNCA3IC0xMzcgMzA0IC0yOTUKNjYxIC0xNTggMzU2IC0yOTEgNjQ5IC0yOTUgNjUwIC01IDAgLTEwMCAtMTYxIC0yMTMgLTM2MCBsLTIwNCAtMzYxIDQ3NAotMTA2OCBjMjYwIC01ODggNDc3IC0xMDcwIDQ4MiAtMTA3MiA1IC0xIDcxMyAxMzIzIDE1NzQgMjk0MiA4NjEgMTYyMCAxNTY3CjI5NDUgMTU3MCAyOTQ0IDQgMCAxMjQ0IC0yMzI5IDI0MTggLTQ1NDEgbDYzIC0xMTggLTEwNzEgMCAtMTA3MCAwIDAgNjQwIDAKNjQwIC0zNDAgMCAtMzQwIDAgMCAtOTgwIDAgLTk4MCAxOTcwIDAgYzE0NzggMCAxOTcwIDMgMTk3MCAxMSAwIDE3IC0zNTkyCjY3NjkgLTM2MDEgNjc2OSAtNCAwIC03OSAtMTM0IC0xNjYgLTI5OHoiLz4KPHBhdGggZD0iTTEzMzEgNDQxNyBjLTczMiAtMTM3NyAtMTMzMSAtMjUwOSAtMTMzMSAtMjUxNSAwIC05IDI5OCAtMTIgMTIwNQotMTIgODU4IDAgMTIwNSAzIDEyMDUgMTEgMCA2IC02MyAxNTkgLTE0MSAzNDAgbC0xNDEgMzI5IC01MDMgMiAtNTAzIDMgNzcxCjE0NTEgYzQyNSA3OTkgNzc0IDE0NTAgNzc3IDE0NDcgMyAtMiAxNDkgLTI3NSAzMjUgLTYwNSAxNzYgLTMzMSAzMjUgLTYwMwozMzAgLTYwNCAxMCAtMyAzOTcgNjIzIDQwMyA2NTIgNCAxNSAtMTA0OCAyMDA0IC0xMDU5IDIwMDQgLTQgMCAtNjA2IC0xMTI3Ci0xMzM4IC0yNTAzeiIvPgo8L2c+Cjwvc3ZnPg==";
+
+// Zet de favicon (het icoon in het browsertabblad) op de meegegeven data-URL.
+// Werkt het bestaande <link rel="icon"> bij, of maakt er één aan als die ontbreekt.
+function pasFaviconToe(dataUrl) {
+  if (typeof document === "undefined" || !dataUrl) return;
+  let link = document.querySelector('link[rel="icon"]');
+  if (!link) {
+    link = document.createElement("link");
+    link.setAttribute("rel", "icon");
+    document.head.appendChild(link);
+  }
+  const isSvg = dataUrl.startsWith("data:image/svg");
+  link.setAttribute("type", isSvg ? "image/svg+xml" : "image/png");
+  link.setAttribute("href", dataUrl);
+}
+
 export default function OffertetoolApp() {
   const [stap, setStap] = useState("login");
   const [terugNaarStap, setTerugNaarStap] = useState("instellingen");
@@ -645,6 +666,58 @@ export default function OffertetoolApp() {
     setLogo(null);
     try {
       await opslagDelete("logo");
+    } catch (e) {
+      // niets opgeslagen om te verwijderen
+    }
+  }
+
+  // --- Favicon (icoon in het browsertabblad) — werkt net als het logo hierboven ---
+  const [favicon, setFavicon] = useState(STANDAARD_FAVICON);
+
+  // Favicon laden uit persistente opslag; anders de standaard-favicon aanhouden.
+  useEffect(() => {
+    let actief = true;
+    (async () => {
+      try {
+        const waarde = await opslagGet("favicon");
+        if (actief && waarde) {
+          setFavicon(waarde);
+          return;
+        }
+      } catch (e) {
+        // nog geen favicon opgeslagen — dan blijft de standaard staan
+      }
+    })();
+    return () => {
+      actief = false;
+    };
+  }, []);
+
+  // Zet de favicon in het tabblad zodra hij verandert (na laden of na uploaden).
+  useEffect(() => {
+    pasFaviconToe(favicon);
+  }, [favicon]);
+
+  function faviconUploaden(bestand) {
+    if (!bestand) return;
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const dataUrl = e.target.result;
+      setFavicon(dataUrl);
+      try {
+        await opslagSet("favicon", dataUrl);
+      } catch (err) {
+        console.error("Opslaan mislukt:", err); // favicon blijft wel zichtbaar voor deze sessie
+      }
+    };
+    reader.readAsDataURL(bestand);
+  }
+
+  // "Verwijderen" zet de favicon terug op de standaard (het tabblad blijft altijd een icoon houden).
+  async function faviconHerstellen() {
+    setFavicon(STANDAARD_FAVICON);
+    try {
+      await opslagDelete("favicon");
     } catch (e) {
       // niets opgeslagen om te verwijderen
     }
@@ -2000,6 +2073,51 @@ export default function OffertetoolApp() {
                 </div>
                 <p style={{ fontSize: 11.5, color: "#8A9089", marginTop: 8 }}>
                   Verschijnt in de menubalk en op elke offerte. Een PNG met transparante achtergrond werkt het best. Wordt automatisch bewaard, ook na herladen of opnieuw inloggen.
+                </p>
+              </div>
+              <div>
+                <label className="ot-label">Favicon</label>
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <div
+                    style={{
+                      width: 64,
+                      height: 64,
+                      borderRadius: 10,
+                      border: "1px dashed #C8CDC5",
+                      background: "#FBFBF9",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      overflow: "hidden",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {favicon ? (
+                      <img src={favicon} alt="Favicon" style={{ width: 32, height: 32, objectFit: "contain" }} />
+                    ) : (
+                      <Building2 size={24} color="#B4B9AE" />
+                    )}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <label className="ot-btn-secondary" style={{ width: "fit-content", cursor: "pointer" }}>
+                      <ImageUp size={15} />
+                      Andere favicon kiezen
+                      <input
+                        type="file"
+                        accept="image/png,image/svg+xml,image/x-icon,image/*"
+                        onChange={(e) => faviconUploaden(e.target.files?.[0])}
+                        style={{ display: "none" }}
+                      />
+                    </label>
+                    {favicon !== STANDAARD_FAVICON && (
+                      <button className="ot-btn-ghost" style={{ width: "fit-content" }} onClick={faviconHerstellen}>
+                        Standaard herstellen
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <p style={{ fontSize: 11.5, color: "#8A9089", marginTop: 8 }}>
+                  Het kleine icoon in het browsertabblad. Wordt heel klein weergegeven, dus een vierkant, eenvoudig logo (PNG of SVG) werkt het best. Wordt automatisch bewaard, ook na herladen of opnieuw inloggen.
                 </p>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
