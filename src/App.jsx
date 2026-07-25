@@ -1540,6 +1540,25 @@ export default function OffertetoolApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geselecteerdeEntries, standaardTeksten, tekstenGeladen, bijlageGeladen]);
 
+  // Vult in één keer alle beschikbare standaardteksten in: de algemene toelichting
+  // én de toelichting per geselecteerde dienst. Bestaande teksten worden overschreven
+  // met de standaardtekst (alleen daar waar een standaardtekst is vastgelegd).
+  function vulAlleStandaardteksten() {
+    if (standaardTeksten.algemeen.trim() !== "") {
+      setAlgemeneToelichting(standaardTeksten.algemeen);
+    }
+    setBijlageToelichtingen((prev) => {
+      const next = { ...prev };
+      geselecteerdeEntries.forEach(({ dienst }) => {
+        const standaard = standaardTeksten.perDienst[dienst.id];
+        if (standaard && standaard.trim() !== "") {
+          next[dienst.id] = standaard;
+        }
+      });
+      return next;
+    });
+  }
+
   function naarBijlage() {
     setStap("bijlage");
   }
@@ -3164,6 +3183,16 @@ export default function OffertetoolApp() {
             titel="Toelichting per onderdeel"
             toelichting="Schrijf optioneel een algemene toelichting, iets klantspecifieks en/of een toelichting per dienst. Alles wordt bewaard en samengevoegd in één gezamenlijke bijlage na de offertes — de klantspecifieke tekst verschijnt op de offerte van díe klant zelf."
           >
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+              <button
+                className="ot-btn-secondary"
+                onClick={vulAlleStandaardteksten}
+                title="Vult de algemene toelichting en de toelichting van elke geselecteerde dienst in een keer met de vastgelegde standaardteksten. Bestaande tekst wordt overschreven."
+              >
+                <RotateCcw size={14} />
+                Alle standaardteksten invullen
+              </button>
+            </div>
             <div
               className="ot-card"
               style={{
