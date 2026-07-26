@@ -5,8 +5,6 @@ import {
   Check,
   ChevronRight,
   ChevronLeft,
-  ChevronUp,
-  ChevronDown,
   FileText,
   Settings as SettingsIcon,
   Users,
@@ -475,27 +473,6 @@ function genereerStandaardLogo() {
   return ACTIVAA_LOGO;
 }
 
-// De standaard-favicon (het Activaa-bergtoppen-logo) als data-URL. Wordt gebruikt
-// zolang er geen eigen favicon is geüpload via de instellingen, en is dezelfde
-// afbeelding als public/favicon.svg.
-const STANDAARD_FAVICON =
-  "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAwIDEwMDAiIGZpbGw9Im5vbmUiIHJvbGU9ImltZyIgYXJpYS1sYWJlbD0iQWN0aXZhYSI+PHRpdGxlPkFjdGl2YWE8L3RpdGxlPjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDAsMTAwMCkgc2NhbGUoMC4xLC0wLjEpIgpmaWxsPSIjMjdBQkUzIiBzdHJva2U9Im5vbmUiPgo8cGF0aCBkPSJNNjIzMyA4MzcyIGMtMTg3MiAtMzUyOSAtMjkxOSAtNTQ4OSAtMjkyNiAtNTQ3OSAtNCA3IC0xMzcgMzA0IC0yOTUKNjYxIC0xNTggMzU2IC0yOTEgNjQ5IC0yOTUgNjUwIC01IDAgLTEwMCAtMTYxIC0yMTMgLTM2MCBsLTIwNCAtMzYxIDQ3NAotMTA2OCBjMjYwIC01ODggNDc3IC0xMDcwIDQ4MiAtMTA3MiA1IC0xIDcxMyAxMzIzIDE1NzQgMjk0MiA4NjEgMTYyMCAxNTY3CjI5NDUgMTU3MCAyOTQ0IDQgMCAxMjQ0IC0yMzI5IDI0MTggLTQ1NDEgbDYzIC0xMTggLTEwNzEgMCAtMTA3MCAwIDAgNjQwIDAKNjQwIC0zNDAgMCAtMzQwIDAgMCAtOTgwIDAgLTk4MCAxOTcwIDAgYzE0NzggMCAxOTcwIDMgMTk3MCAxMSAwIDE3IC0zNTkyCjY3NjkgLTM2MDEgNjc2OSAtNCAwIC03OSAtMTM0IC0xNjYgLTI5OHoiLz4KPHBhdGggZD0iTTEzMzEgNDQxNyBjLTczMiAtMTM3NyAtMTMzMSAtMjUwOSAtMTMzMSAtMjUxNSAwIC05IDI5OCAtMTIgMTIwNQotMTIgODU4IDAgMTIwNSAzIDEyMDUgMTEgMCA2IC02MyAxNTkgLTE0MSAzNDAgbC0xNDEgMzI5IC01MDMgMiAtNTAzIDMgNzcxCjE0NTEgYzQyNSA3OTkgNzc0IDE0NTAgNzc3IDE0NDcgMyAtMiAxNDkgLTI3NSAzMjUgLTYwNSAxNzYgLTMzMSAzMjUgLTYwMwozMzAgLTYwNCAxMCAtMyAzOTcgNjIzIDQwMyA2NTIgNCAxNSAtMTA0OCAyMDA0IC0xMDU5IDIwMDQgLTQgMCAtNjA2IC0xMTI3Ci0xMzM4IC0yNTAzeiIvPgo8L2c+Cjwvc3ZnPg==";
-
-// Zet de favicon (het icoon in het browsertabblad) op de meegegeven data-URL.
-// Werkt het bestaande <link rel="icon"> bij, of maakt er één aan als die ontbreekt.
-function pasFaviconToe(dataUrl) {
-  if (typeof document === "undefined" || !dataUrl) return;
-  let link = document.querySelector('link[rel="icon"]');
-  if (!link) {
-    link = document.createElement("link");
-    link.setAttribute("rel", "icon");
-    document.head.appendChild(link);
-  }
-  const isSvg = dataUrl.startsWith("data:image/svg");
-  link.setAttribute("type", isSvg ? "image/svg+xml" : "image/png");
-  link.setAttribute("href", dataUrl);
-}
-
 export default function OffertetoolApp() {
   const [stap, setStap] = useState("login");
   const [terugNaarStap, setTerugNaarStap] = useState("instellingen");
@@ -666,58 +643,6 @@ export default function OffertetoolApp() {
     setLogo(null);
     try {
       await opslagDelete("logo");
-    } catch (e) {
-      // niets opgeslagen om te verwijderen
-    }
-  }
-
-  // --- Favicon (icoon in het browsertabblad) — werkt net als het logo hierboven ---
-  const [favicon, setFavicon] = useState(STANDAARD_FAVICON);
-
-  // Favicon laden uit persistente opslag; anders de standaard-favicon aanhouden.
-  useEffect(() => {
-    let actief = true;
-    (async () => {
-      try {
-        const waarde = await opslagGet("favicon");
-        if (actief && waarde) {
-          setFavicon(waarde);
-          return;
-        }
-      } catch (e) {
-        // nog geen favicon opgeslagen — dan blijft de standaard staan
-      }
-    })();
-    return () => {
-      actief = false;
-    };
-  }, []);
-
-  // Zet de favicon in het tabblad zodra hij verandert (na laden of na uploaden).
-  useEffect(() => {
-    pasFaviconToe(favicon);
-  }, [favicon]);
-
-  function faviconUploaden(bestand) {
-    if (!bestand) return;
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const dataUrl = e.target.result;
-      setFavicon(dataUrl);
-      try {
-        await opslagSet("favicon", dataUrl);
-      } catch (err) {
-        console.error("Opslaan mislukt:", err); // favicon blijft wel zichtbaar voor deze sessie
-      }
-    };
-    reader.readAsDataURL(bestand);
-  }
-
-  // "Verwijderen" zet de favicon terug op de standaard (het tabblad blijft altijd een icoon houden).
-  async function faviconHerstellen() {
-    setFavicon(STANDAARD_FAVICON);
-    try {
-      await opslagDelete("favicon");
     } catch (e) {
       // niets opgeslagen om te verwijderen
     }
@@ -1409,21 +1334,16 @@ export default function OffertetoolApp() {
       .filter(({ dienst }) => !isUitgeschakeldVoorKlant(klantId, dienst.id))
       .map(({ dienst, aantal }) => {
         const { prijs, opAanvraag, opNacalculatie, variant } = prijsVoor(klantId, dienst);
-        const factor = Number(dienst.factor) || 1;
         return {
           id: dienst.id,
           naam: variant?.naam ? `${dienst.naam} — ${variant.naam}` : dienst.naam,
           eenheid: dienst.eenheid,
           categorie: dienst.categorie,
           aantal,
-          factor,
-          // Aantal dat op de offerte getoond wordt: het ingevoerde aantal maal de
-          // achtergrondfactor (bijv. maandprijs met factor 12 -> "12 maand").
-          toonAantal: aantal * factor,
           prijs,
           opAanvraag,
           opNacalculatie,
-          subtotaal: opAanvraag || opNacalculatie ? 0 : aantal * prijs * factor,
+          subtotaal: opAanvraag || opNacalculatie ? 0 : aantal * prijs,
         };
       });
   }
@@ -1439,29 +1359,9 @@ export default function OffertetoolApp() {
         categorie,
         naam: "Nieuwe dienst",
         eenheid: "stuk",
-        factor: 1,
         varianten: [{ id: nieuwId("v"), naam: "", prijs: 0 }],
       },
     ]);
-  }
-  function verplaatsDienst(id, richting) {
-    // Verplaatst een dienst één plek omhoog (-1) of omlaag (+1) binnen zijn
-    // eigen categorie. De volgorde van de catalogus bepaalt overal de volgorde:
-    // op het aanvinkscherm, in de prijzentabel én in de uiteindelijke offerte.
-    setDienstenCatalogus((prev) => {
-      const dienst = prev.find((d) => d.id === id);
-      if (!dienst) return prev;
-      const zelfdeCategorie = prev.filter((d) => d.categorie === dienst.categorie);
-      const posInCat = zelfdeCategorie.findIndex((d) => d.id === id);
-      const doelPos = posInCat + richting;
-      if (doelPos < 0 || doelPos >= zelfdeCategorie.length) return prev;
-      const buurId = zelfdeCategorie[doelPos].id;
-      const idxA = prev.findIndex((d) => d.id === id);
-      const idxB = prev.findIndex((d) => d.id === buurId);
-      const next = [...prev];
-      [next[idxA], next[idxB]] = [next[idxB], next[idxA]];
-      return next;
-    });
   }
   function verwijderDienst(id) {
     setDienstenCatalogus((prev) => prev.filter((d) => d.id !== id));
@@ -1612,25 +1512,6 @@ export default function OffertetoolApp() {
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geselecteerdeEntries, standaardTeksten, tekstenGeladen, bijlageGeladen]);
-
-  // Vult in één keer alle beschikbare standaardteksten in: de algemene toelichting
-  // én de toelichting per geselecteerde dienst. Bestaande teksten worden overschreven
-  // met de standaardtekst (alleen daar waar een standaardtekst is vastgelegd).
-  function vulAlleStandaardteksten() {
-    if (standaardTeksten.algemeen.trim() !== "") {
-      setAlgemeneToelichting(standaardTeksten.algemeen);
-    }
-    setBijlageToelichtingen((prev) => {
-      const next = { ...prev };
-      geselecteerdeEntries.forEach(({ dienst }) => {
-        const standaard = standaardTeksten.perDienst[dienst.id];
-        if (standaard && standaard.trim() !== "") {
-          next[dienst.id] = standaard;
-        }
-      });
-      return next;
-    });
-  }
 
   function naarBijlage() {
     setStap("bijlage");
@@ -2075,51 +1956,6 @@ export default function OffertetoolApp() {
                   Verschijnt in de menubalk en op elke offerte. Een PNG met transparante achtergrond werkt het best. Wordt automatisch bewaard, ook na herladen of opnieuw inloggen.
                 </p>
               </div>
-              <div>
-                <label className="ot-label">Favicon</label>
-                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                  <div
-                    style={{
-                      width: 64,
-                      height: 64,
-                      borderRadius: 10,
-                      border: "1px dashed #C8CDC5",
-                      background: "#FBFBF9",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      overflow: "hidden",
-                      flexShrink: 0,
-                    }}
-                  >
-                    {favicon ? (
-                      <img src={favicon} alt="Favicon" style={{ width: 32, height: 32, objectFit: "contain" }} />
-                    ) : (
-                      <Building2 size={24} color="#B4B9AE" />
-                    )}
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    <label className="ot-btn-secondary" style={{ width: "fit-content", cursor: "pointer" }}>
-                      <ImageUp size={15} />
-                      Andere favicon kiezen
-                      <input
-                        type="file"
-                        accept="image/png,image/svg+xml,image/x-icon,image/*"
-                        onChange={(e) => faviconUploaden(e.target.files?.[0])}
-                        style={{ display: "none" }}
-                      />
-                    </label>
-                    {favicon !== STANDAARD_FAVICON && (
-                      <button className="ot-btn-ghost" style={{ width: "fit-content" }} onClick={faviconHerstellen}>
-                        Standaard herstellen
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <p style={{ fontSize: 11.5, color: "#8A9089", marginTop: 8 }}>
-                  Het kleine icoon in het browsertabblad. Wordt heel klein weergegeven, dus een vierkant, eenvoudig logo (PNG of SVG) werkt het best. Wordt automatisch bewaard, ook na herladen of opnieuw inloggen.
-                </p>
-              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                 <div>
                   <label className="ot-label">Bedrijfsnaam</label>
@@ -2209,27 +2045,9 @@ export default function OffertetoolApp() {
                 <div style={{ display: "grid", gap: 12 }}>
                   {dienstenCatalogus
                     .filter((d) => d.categorie === cat)
-                    .map((dienst, idx, arr) => (
+                    .map((dienst) => (
                       <div key={dienst.id} className="ot-card" style={{ padding: 18 }}>
                         <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "flex-end" }}>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
-                            <button
-                              onClick={() => verplaatsDienst(dienst.id, -1)}
-                              disabled={idx === 0}
-                              title="Naar boven verplaatsen"
-                              style={{ border: "1px solid #E2E4DF", background: "#fff", color: idx === 0 ? "#C7CBC3" : "#5B6259", borderRadius: 6, padding: "3px 6px", cursor: idx === 0 ? "default" : "pointer", display: "flex" }}
-                            >
-                              <ChevronUp size={14} />
-                            </button>
-                            <button
-                              onClick={() => verplaatsDienst(dienst.id, 1)}
-                              disabled={idx === arr.length - 1}
-                              title="Naar beneden verplaatsen"
-                              style={{ border: "1px solid #E2E4DF", background: "#fff", color: idx === arr.length - 1 ? "#C7CBC3" : "#5B6259", borderRadius: 6, padding: "3px 6px", cursor: idx === arr.length - 1 ? "default" : "pointer", display: "flex" }}
-                            >
-                              <ChevronDown size={14} />
-                            </button>
-                          </div>
                           <div style={{ flex: 2 }}>
                             <label className="ot-label">Dienstnaam</label>
                             <input
@@ -2244,19 +2062,6 @@ export default function OffertetoolApp() {
                               className="ot-input"
                               value={dienst.eenheid}
                               onChange={(e) => bijwerkDienstVeld(dienst.id, "eenheid", e.target.value)}
-                            />
-                          </div>
-                          <div style={{ width: 92, flexShrink: 0 }}>
-                            <label className="ot-label" title="Vermenigvuldigt op de achtergrond het subtotaal én het getoonde aantal. Bijv. een maandprijs met factor 12 toont het jaarbedrag. Prijs per eenheid blijft ongewijzigd. Laat op 1 voor geen effect.">
-                              Factor
-                            </label>
-                            <input
-                              className="ot-input"
-                              type="number"
-                              min="1"
-                              step="1"
-                              value={dienst.factor ?? 1}
-                              onChange={(e) => bijwerkDienstVeld(dienst.id, "factor", e.target.value === "" ? 1 : Number(e.target.value))}
                             />
                           </div>
                           <button
@@ -3176,9 +2981,6 @@ export default function OffertetoolApp() {
                             <div style={{ fontWeight: 700, fontSize: 13.5 }}>{dienst.naam}</div>
                             <div style={{ fontSize: 11.5, color: "#8A9089", marginTop: 2 }}>
                               {dienst.eenheid} · {aantal}×
-                              {(Number(dienst.factor) || 1) > 1 && (
-                                <span style={{ color: "#B98237", fontWeight: 600 }}> · factor ×{Number(dienst.factor)}</span>
-                              )}
                             </div>
                           </td>
                           {gekozenKlanten.map((k) => {
@@ -3301,16 +3103,6 @@ export default function OffertetoolApp() {
             titel="Toelichting per onderdeel"
             toelichting="Schrijf optioneel een algemene toelichting, iets klantspecifieks en/of een toelichting per dienst. Alles wordt bewaard en samengevoegd in één gezamenlijke bijlage na de offertes — de klantspecifieke tekst verschijnt op de offerte van díe klant zelf."
           >
-            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-              <button
-                className="ot-btn-secondary"
-                onClick={vulAlleStandaardteksten}
-                title="Vult de algemene toelichting en de toelichting van elke geselecteerde dienst in een keer met de vastgelegde standaardteksten. Bestaande tekst wordt overschreven."
-              >
-                <RotateCcw size={14} />
-                Alle standaardteksten invullen
-              </button>
-            </div>
             <div
               className="ot-card"
               style={{
@@ -3542,7 +3334,7 @@ export default function OffertetoolApp() {
                               <td style={{ padding: "10px 4px" }}>
                                 <div style={{ fontWeight: 600, fontSize: 13.5 }}>{r.naam}</div>
                               </td>
-                              <td style={{ padding: "10px 4px", textAlign: "right", fontSize: 13.5 }}>{r.toonAantal} {r.eenheid}</td>
+                              <td style={{ padding: "10px 4px", textAlign: "right", fontSize: 13.5 }}>{r.aantal} {r.eenheid}</td>
                               <td style={{ padding: "10px 4px", textAlign: "right", fontSize: 13.5 }}>
                                 {r.opAanvraag ? "op aanvraag" : r.opNacalculatie ? "nacalculatie" : currency(r.prijs)}
                               </td>

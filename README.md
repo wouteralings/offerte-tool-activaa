@@ -130,3 +130,46 @@ Gedrag:
   dan wordt diezelfde offerte bijgewerkt ("laatst gewijzigd") — er komt geen kopie bij.
 - In het overzicht ziet iedereen alle offertes van alle collega's: datum, klant(en), door wie
   opgemaakt, en (indien van toepassing) wanneer en door wie voor het laatst gewijzigd.
+
+## Inloggen beperken tot alleen jullie eigen Microsoft-tenant
+
+Standaard gebruikt Azure Static Web Apps een ingebouwde, **multi-tenant** Microsoft-login —
+daarmee kan in principe iedereen met een zakelijk Microsoft-account (van willekeurig welke
+organisatie) inloggen. `staticwebapp.config.json` is nu aangepast om in plaats daarvan een
+**eigen, single-tenant app-registratie** te gebruiken, zodat alleen accounts uit jullie eigen
+Microsoft 365/Entra ID-tenant kunnen inloggen. Dit vraagt eenmalig wat instelwerk in Azure:
+
+**Stap 1 — Eigen tenant-ID opzoeken**
+1. Ga naar **Microsoft Entra ID** (voorheen Azure Active Directory) in de Azure Portal.
+2. Op het **Overzicht**-scherm staat **Tenant-ID** — kopieer deze GUID.
+
+**Stap 2 — Nieuwe app-registratie aanmaken**
+1. Ga in Entra ID naar **App-registraties** → **+ Nieuwe registratie**.
+2. Naam: bijv. `OfferteTool Activaa - login`.
+3. Bij **Ondersteunde accounttypen**: kies **"Accounts in this organizational directory only
+   (Single tenant)"** — dit is de kern van de beperking.
+4. **Redirect URI**: type **Web**, waarde:
+   `https://<jouw-static-web-app-domein>/.auth/login/aad/callback`
+   (het domein vind je bovenaan het Overzicht van je Static Web App, bijv.
+   `https://icy-plant-xxxxxxx.azurestaticapps.net` — of je eigen custom domain als je dat hebt).
+5. **Registreren**.
+
+**Stap 3 — Client secret aanmaken**
+1. Ga naar **Certificates & secrets** → **+ New client secret**.
+2. Geef 'm een naam en bewaartermijn, **Add**.
+3. Kopieer meteen de **Value** (niet de Secret ID) — die is later niet meer zichtbaar.
+
+**Stap 4 — Gegevens invullen**
+1. Kopieer bij **Overview** van de app-registratie de **Application (client) ID**.
+2. Ga naar je Static Web App → **Omgevingsvariabelen** → **+ Toevoegen**, en voeg twee nieuwe
+   waarden toe (naast de bestaande `STORAGE_CONNECTION_STRING`):
+   - **Naam**: `AAD_CLIENT_ID` → **Waarde**: de Application (client) ID uit stap 4.1
+   - **Naam**: `AAD_CLIENT_SECRET` → **Waarde**: de secret-waarde uit stap 3.3
+3. Open `staticwebapp.config.json` in de code en vervang `AAD_TENANT_ID` door de echte tenant-ID
+   uit stap 1 (dit moet letterlijk in het bestand staan, dit kan niet via een omgevingsvariabele).
+
+**Stap 5 — Committen en pushen**
+Zoals gewoonlijk: `git add -A`, `git commit`, `git push`. Na de deploy loggen alleen accounts
+uit jullie eigen tenant nog in; andere organisaties krijgen een foutmelding van Microsoft bij
+het inloggen.
+
