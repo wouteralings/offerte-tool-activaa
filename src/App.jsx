@@ -1304,7 +1304,7 @@ export default function OffertetoolApp() {
       if (next[dienst.id]) {
         delete next[dienst.id];
       } else {
-        next[dienst.id] = { aantal: 1 };
+        next[dienst.id] = { aantal: dienst.standaardAantal || 1 };
       }
       return next;
     });
@@ -1430,6 +1430,7 @@ export default function OffertetoolApp() {
         categorie,
         naam: "Nieuwe dienst",
         eenheid: "stuk",
+        standaardAantal: 1,
         varianten: [{ id: nieuwId("v"), naam: "", prijs: 0 }],
       },
     ]);
@@ -1560,6 +1561,25 @@ export default function OffertetoolApp() {
   }
   function bijwerkStandaardDienstTekst(dienstId, tekst) {
     setStandaardTeksten((prev) => ({ ...prev, perDienst: { ...prev.perDienst, [dienstId]: tekst } }));
+  }
+
+  // Op de Bijlage-stap: alle standaardteksten in één keer overnemen in déze offerte
+  // (algemeen + elk aangevinkt dienst-tekstblok) — hetzelfde als los op elk "Standaardtekst"
+  // knopje klikken, maar dan in één keer. Overschrijft wat er al in die velden stond.
+  function alleStandaardtekstenOvernemen() {
+    if (standaardTeksten.algemeen.trim() !== "") {
+      setAlgemeneToelichting(standaardTeksten.algemeen);
+    }
+    setBijlageToelichtingen((prev) => {
+      const next = { ...prev };
+      geselecteerdeEntries.forEach(({ dienst }) => {
+        const standaard = standaardTeksten.perDienst[dienst.id];
+        if (standaard && standaard.trim() !== "") {
+          next[dienst.id] = standaard;
+        }
+      });
+      return next;
+    });
   }
 
   // Standaardteksten automatisch invullen zodra diensten geselecteerd zijn — werkt ongeacht
@@ -2179,6 +2199,18 @@ export default function OffertetoolApp() {
                               className="ot-input"
                               value={dienst.eenheid}
                               onChange={(e) => bijwerkDienstVeld(dienst.id, "eenheid", e.target.value)}
+                            />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <label className="ot-label">Standaard aantal (factor)</label>
+                            <input
+                              className="ot-input"
+                              type="number"
+                              min="1"
+                              value={dienst.standaardAantal || 1}
+                              onChange={(e) =>
+                                bijwerkDienstVeld(dienst.id, "standaardAantal", Math.max(1, Number(e.target.value) || 1))
+                              }
                             />
                           </div>
                           <button
@@ -3220,6 +3252,15 @@ export default function OffertetoolApp() {
             titel="Toelichting per onderdeel"
             toelichting="Schrijf optioneel een algemene toelichting, iets klantspecifieks en/of een toelichting per dienst. Alles wordt bewaard en samengevoegd in één gezamenlijke bijlage na de offertes — de klantspecifieke tekst verschijnt op de offerte van díe klant zelf."
           >
+            {(standaardTeksten.algemeen.trim() !== "" ||
+              Object.values(standaardTeksten.perDienst).some((t) => (t || "").trim() !== "")) && (
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
+                <button className="ot-btn-secondary" onClick={alleStandaardtekstenOvernemen}>
+                  <RotateCcw size={14} />
+                  Alle standaardteksten overnemen
+                </button>
+              </div>
+            )}
             <div
               className="ot-card"
               style={{
@@ -3293,34 +3334,43 @@ export default function OffertetoolApp() {
                 </div>
               )}
 
-              {geselecteerdeEntries.map(({ dienst }) => (
-                <div key={dienst.id} className="ot-card" style={{ padding: 16 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <label className="ot-label">{dienst.naam}</label>
-                    {(standaardTeksten.perDienst[dienst.id] || "").trim() !== "" && (
-                      <button
-                        className="ot-btn-ghost"
-                        onClick={() =>
-                          setBijlageToelichtingen((prev) => ({ ...prev, [dienst.id]: standaardTeksten.perDienst[dienst.id] }))
-                        }
-                        title="Standaardtekst gebruiken"
-                      >
-                        <RotateCcw size={12} />
-                        Standaardtekst
-                      </button>
-                    )}
+              {geselecteerdeEntries.length > 0 && (
+                <div>
+                  <div className="ot-cat-koptekst">
+                    <span>Diensten</span>
                   </div>
-                  <textarea
-                    className="ot-input"
-                    rows={3}
-                    placeholder={`Toelichting bij ${dienst.naam.toLowerCase()}…`}
-                    value={bijlageToelichtingen[dienst.id] || ""}
-                    onChange={(e) =>
-                      setBijlageToelichtingen((prev) => ({ ...prev, [dienst.id]: e.target.value }))
-                    }
-                  />
+                  <div style={{ display: "grid", gap: 12 }}>
+                    {geselecteerdeEntries.map(({ dienst }) => (
+                      <div key={dienst.id} className="ot-card" style={{ padding: 16 }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <label className="ot-label">{dienst.naam}</label>
+                          {(standaardTeksten.perDienst[dienst.id] || "").trim() !== "" && (
+                            <button
+                              className="ot-btn-ghost"
+                              onClick={() =>
+                                setBijlageToelichtingen((prev) => ({ ...prev, [dienst.id]: standaardTeksten.perDienst[dienst.id] }))
+                              }
+                              title="Standaardtekst gebruiken"
+                            >
+                              <RotateCcw size={12} />
+                              Standaardtekst
+                            </button>
+                          )}
+                        </div>
+                        <textarea
+                          className="ot-input"
+                          rows={3}
+                          placeholder={`Toelichting bij ${dienst.naam.toLowerCase()}…`}
+                          value={bijlageToelichtingen[dienst.id] || ""}
+                          onChange={(e) =>
+                            setBijlageToelichtingen((prev) => ({ ...prev, [dienst.id]: e.target.value }))
+                          }
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ))}
+              )}
               {geselecteerdeEntries.length === 0 && (
                 <div style={{ textAlign: "center", padding: 30, color: "#8A9089", fontSize: 13.5 }}>
                   Nog geen diensten geselecteerd.
