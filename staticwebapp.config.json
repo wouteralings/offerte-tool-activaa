@@ -12,6 +12,14 @@
   },
   "routes": [
     {
+      "route": "/tekenen/*",
+      "allowedRoles": ["anonymous"]
+    },
+    {
+      "route": "/api/teken/*",
+      "allowedRoles": ["anonymous"]
+    },
+    {
       "route": "/*",
       "allowedRoles": ["authenticated"]
     }

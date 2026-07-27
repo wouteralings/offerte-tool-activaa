@@ -173,3 +173,27 @@ Zoals gewoonlijk: `git add -A`, `git commit`, `git push`. Na de deploy loggen al
 uit jullie eigen tenant nog in; andere organisaties krijgen een foutmelding van Microsoft bij
 het inloggen.
 
+## Offertes laten ondertekenen (publieke tekenlink)
+
+Er is een publieke tekenpagina bijgekomen op `/tekenen/{offerte-id}` — bereikbaar **zonder**
+Microsoft-login, want klanten hebben geen Activaa-account. Het offerte-ID in de link is de
+toegangssleutel (net als bij een gedeelde documentlink). Geen extra Azure-configuratie nodig:
+dit gebruikt dezelfde `STORAGE_CONNECTION_STRING` als de rest.
+
+Werking:
+- Klik op **"Tekenlink kopiëren"** op het offerte-eindscherm (slaat de offerte zo nodig eerst
+  op) en stuur de link zelf naar de klant (bijv. via e-mail — er is geen automatische
+  mailfunctie).
+- De klant ziet de volledige offerte-inhoud en kan **"Akkoord — ondertekenen"** of **"Niet
+  akkoord"** kiezen, met naam + e-mailadres verplicht.
+- Vastgelegd bij ondertekenen/afwijzen: naam, e-mail, IP-adres, tijdstip, en elke keer dat de
+  link geopend is (view-tracking). Eenmaal getekend/afgewezen kan een link niet nogmaals worden
+  gebruikt om te overschrijven.
+- De status van de offerte springt automatisch naar "Geaccepteerd" of "Niet geaccepteerd".
+- Bekijk het volledige logboek en de ondertekeningsgegevens via de knop **"Log"** bij elke
+  offerte in het overzicht.
+
+**Let op — dit is geen gecertificeerde elektronische handtekening** (geen eIDAS-keurmerk zoals
+DocuSign/Adobe Sign dat kunnen bieden). Voor de meeste offertes is dit prima bewijs, maar het is
+juridisch niet exact hetzelfde niveau als een "gekwalificeerde" handtekening.
+

@@ -92,6 +92,7 @@ module.exports = async function (context, req) {
       }
 
       const record = {
+        ...(bestaandRecord || {}),
         id,
         aangemaaktOp: bestaandRecord?.aangemaaktOp || nu,
         aangemaaktDoor: bestaandRecord?.aangemaaktDoor || gebruikerNaam,
