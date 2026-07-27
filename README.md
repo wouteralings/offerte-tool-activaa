@@ -231,3 +231,32 @@ rechten óók rechten op Microsoft Graph nodig:
 
 Zonder deze stap blijft het ondertekenen zelf gewoon werken; alleen de SharePoint-upload en de
 taak worden dan overgeslagen (met een foutmelding in de logs).
+
+## Tekenlink per e-mail versturen (rechtstreeks, niet via je eigen mailprogramma)
+
+De knop **"Mail versturen"** op het offerte-eindscherm verstuurt de mail rechtstreeks via
+Microsoft Graph, vanaf het vaste adres **`correspondentie@activaa.nl`** — dus niet meer via een
+`mailto:`-koppeling die je eigen mailprogramma opent. Dit levert een nette HTML-mail op met een
+echt klikbare link.
+
+### Extra rechten nodig: Mail.Send
+
+Dezelfde app-registratie (`DYNAMICS_CLIENT_ID`) heeft hiervoor **nóg een** Microsoft Graph-
+machtiging nodig, naast `Sites.ReadWrite.All`:
+
+1. Ga naar die app-registratie → **API-machtigingen** → **+ Een machtiging toevoegen**.
+2. **Microsoft Graph** → **Application permissions** (niet Delegated).
+3. Zoek en vink aan: **`Mail.Send`**.
+4. **Add permissions**, en klik daarna op **"Grant admin consent for [tenant]"**.
+
+### Aanbevolen: toegang beperken tot alleen deze mailbox
+
+Met `Mail.Send` (Application) kan de app in principe **namens elke mailbox** in de tenant mail
+versturen — niet alleen `correspondentie@activaa.nl`. Voor de meeste omgevingen is het
+verstandig dit te beperken met een **Exchange Application Access Policy**, zodat de app
+uitsluitend mail mag versturen vanaf die ene mailbox. Dit vereist Exchange Online PowerShell en
+is een aparte, optionele hardeningsstap (vraag dit na bij wie Exchange beheert als dit relevant
+is voor jullie beveiligingsbeleid).
+
+Zonder deze machtiging blijft "Tekenlink kopiëren" gewoon werken; "Mail versturen" geeft dan een
+duidelijke foutmelding in plaats van de mail te versturen.

@@ -1,0 +1,98 @@
+const { haalGraphToken } = require("../_gedeeld/onboarding.js");
+
+// Vast afzenderadres — een gedeelde/functionele mailbox, geen persoonlijk account. Kan later
+// eventueel een omgevingsvariabele worden als dit ooit moet wisselen.
+const AFZENDER_MAILBOX = "correspondentie@activaa.nl";
+
+function escapeHtml(tekst) {
+  return String(tekst || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+module.exports = async function (context, req) {
+  if (req.method !== "POST") {
+    context.res = { status: 405, body: { error: "Methode niet ondersteund." } };
+    return;
+  }
+
+  const invoer = req.body || {};
+  const naar = (invoer.naar || "").trim();
+  const onderwerp = (invoer.onderwerp || "Offerte").trim();
+  const aanhef = (invoer.aanhef || "Beste,").trim();
+  const inleidingszin = (invoer.inleidingszin || "").trim();
+  const link = (invoer.link || "").trim();
+  const ondertekenaar = (invoer.ondertekenaar || "").trim();
+
+  if (!naar || !link) {
+    context.res = {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+      body: { error: "E-mailadres en tekenlink zijn verplicht." },
+    };
+    return;
+  }
+
+  try {
+    const token = await haalGraphToken();
+
+    const htmlBody = `
+      <p>${escapeHtml(aanhef)}</p>
+      <p>${escapeHtml(inleidingszin)}<br/>
+      <a href="${link}">${link}</a></p>
+      <p>Met vriendelijke groet,<br/>${escapeHtml(ondertekenaar)}</p>
+    `;
+
+    const bericht = {
+      message: {
+        subject: onderwerp,
+        body: { contentType: "HTML", content: htmlBody },
+        toRecipients: [{ emailAddress: { address: naar } }],
+      },
+      saveToSentItems: true,
+    };
+
+    const res = await fetch(`https://graph.microsoft.com/v1.0/users/${AFZENDER_MAILBOX}/sendMail`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(bericht),
+    });
+
+    if (!res.ok) {
+      const tekst = await res.text();
+      throw new Error(`Graph sendMail mislukt (${res.status}): ${tekst}`);
+    }
+
+    context.res = {
+      headers: { "Content-Type": "application/json" },
+      body: { verzonden: true, van: AFZENDER_MAILBOX },
+    };
+  } catch (err) {
+    if (err.message === "MISSING_CONFIG") {
+      context.res = {
+        status: 501,
+        headers: { "Content-Type": "application/json" },
+        body: { error: "Dynamics/Graph-koppeling is nog niet geconfigureerd." },
+      };
+      return;
+    }
+    context.log.error(err);
+    context.res = {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+      body: {
+        error:
+          "Versturen via " +
+          AFZENDER_MAILBOX +
+          " is mislukt. Controleer of de app-registratie de machtiging 'Mail.Send' (Application, met " +
+          "beheerderstoestemming) heeft.",
+        detail: String(err),
+      },
+    };
+  }
+};

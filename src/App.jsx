@@ -776,6 +776,9 @@ export default function OffertetoolApp() {
   // mailen — standaard het bekende adres van de klant, hier alleen zichtbaar/wijzigbaar
   // vlak voordat je 'm gebruikt (niet apart opgeslagen bij de offerte).
   const [mailAdressen, setMailAdressen] = useState({});
+  // mailStatus: per groep klanten (samengevoegde ID's) de status van het versturen —
+  // { [sleutel]: { status: "bezig"|"verzonden"|"fout", bericht?, van? } }
+  const [mailStatus, setMailStatus] = useState({});
 
   async function laadOffertesLijst() {
     setOffertesLijstBezig(true);
@@ -1755,10 +1758,15 @@ export default function OffertetoolApp() {
   async function mailTekenLink(klanten) {
     const groep = Array.isArray(klanten) ? klanten : [klanten];
     const eerste = groep[0];
+    const sleutel = groep.map((k) => k.id).join("+");
     const id = await zorgVoorOfferteId();
     if (!id) return;
     const link = `${window.location.origin}/tekenen/${id}`;
     const email = mailAdressen[eerste.id] ?? eerste.email ?? "";
+    if (!email.trim()) {
+      setMailStatus((prev) => ({ ...prev, [sleutel]: { status: "fout", bericht: "Vul eerst een e-mailadres in." } }));
+      return;
+    }
     // Bij meerdere klanten met dezelfde contactpersoon (komt voor: iemand kan bij
     // meerdere bedrijven de primaire contactpersoon zijn) de bedrijfsnamen samen noemen.
     const bedrijfsnamen = groep.map((k) => k.naam).join(" en ");
@@ -1768,9 +1776,27 @@ export default function OffertetoolApp() {
       groep.length > 1
         ? `Hierbij ontvangt u onze offerte voor ${bedrijfsnamen}. U kunt deze inzien en digitaal ondertekenen via onderstaande link:`
         : "Hierbij ontvangt u onze offerte. U kunt deze inzien en digitaal ondertekenen via onderstaande link:";
-    const body = `${aanhef}\n\n${inleidingszin}\n${link}\n\nMet vriendelijke groet,\n${huidigeGebruiker?.naam || ""}`;
-    const mailtoUrl = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(onderwerp)}&body=${encodeURIComponent(body)}`;
-    window.location.href = mailtoUrl;
+
+    setMailStatus((prev) => ({ ...prev, [sleutel]: { status: "bezig" } }));
+    try {
+      const res = await fetch("/api/verstuur-mail", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          naar: email.trim(),
+          onderwerp,
+          aanhef,
+          inleidingszin,
+          link,
+          ondertekenaar: huidigeGebruiker?.naam || "",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setMailStatus((prev) => ({ ...prev, [sleutel]: { status: "verzonden", van: data.van } }));
+    } catch (e) {
+      setMailStatus((prev) => ({ ...prev, [sleutel]: { status: "fout", bericht: e.message } }));
+    }
   }
 
   const kanNaarDiensten = gekozenKlanten.length > 0;
@@ -4061,42 +4087,57 @@ export default function OffertetoolApp() {
                   <div style={{ fontSize: 12, fontWeight: 700, color: "#5B6259", marginBottom: 10 }}>
                     Tekenlink per e-mail aanbieden
                   </div>
-                  <div style={{ display: "grid", gap: 10 }}>
+                  <div style={{ display: "grid", gap: 6 }}>
                     {mailGroepen.map((groep) => {
                       const eerste = groep.klanten[0];
                       const emailWaarde = mailAdressen[eerste.id] ?? eerste.email ?? "";
                       const klantNamenTekst = groep.klanten.map((k) => k.naam).join(" + ");
+                      const status = mailStatus[groep.sleutel];
                       return (
-                        <div key={groep.sleutel} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                          <span style={{ fontSize: 12.5, minWidth: 140, color: "#3A4038" }}>{klantNamenTekst}</span>
-                          <input
-                            className="ot-input"
-                            type="email"
-                            style={{ flex: 1, minWidth: 200 }}
-                            value={emailWaarde}
-                            onChange={(e) => {
-                              const nieuweWaarde = e.target.value;
-                              setMailAdressen((prev) => {
-                                const next = { ...prev };
-                                groep.klanten.forEach((k) => {
-                                  next[k.id] = nieuweWaarde;
+                        <div key={groep.sleutel}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 12.5, minWidth: 140, color: "#3A4038" }}>{klantNamenTekst}</span>
+                            <input
+                              className="ot-input"
+                              type="email"
+                              style={{ flex: 1, minWidth: 200 }}
+                              value={emailWaarde}
+                              onChange={(e) => {
+                                const nieuweWaarde = e.target.value;
+                                setMailAdressen((prev) => {
+                                  const next = { ...prev };
+                                  groep.klanten.forEach((k) => {
+                                    next[k.id] = nieuweWaarde;
+                                  });
+                                  return next;
                                 });
-                                return next;
-                              });
-                            }}
-                            placeholder="e-mailadres@voorbeeld.nl"
-                          />
-                          <button className="ot-btn-secondary" onClick={() => mailTekenLink(groep.klanten)}>
-                            <Mail size={14} />
-                            Mail versturen
-                          </button>
+                              }}
+                              placeholder="e-mailadres@voorbeeld.nl"
+                            />
+                            <button
+                              className="ot-btn-secondary"
+                              onClick={() => mailTekenLink(groep.klanten)}
+                              disabled={status?.status === "bezig"}
+                            >
+                              {status?.status === "verzonden" ? <Check size={14} /> : <Mail size={14} />}
+                              {status?.status === "bezig" ? "Bezig met versturen…" : status?.status === "verzonden" ? "Verzonden" : "Mail versturen"}
+                            </button>
+                          </div>
+                          {status?.status === "verzonden" && (
+                            <div style={{ fontSize: 11, color: "#2E7D4F", marginTop: 3 }}>
+                              Verzonden vanaf {status.van}.
+                            </div>
+                          )}
+                          {status?.status === "fout" && (
+                            <div style={{ fontSize: 11, color: "#B14A2E", marginTop: 3 }}>{status.bericht}</div>
+                          )}
                         </div>
                       );
                     })}
                   </div>
                   <p style={{ fontSize: 11, color: "#8A9089", marginTop: 8 }}>
-                    Opent je eigen mailprogramma met de tekenlink al ingevuld — controleer het adres en de tekst
-                    voordat je verstuurt.
+                    Wordt rechtstreeks verzonden vanaf <strong>correspondentie@activaa.nl</strong>, met de
+                    tekenlink als klikbare link.
                   </p>
                 </div>
               );

@@ -318,4 +318,10 @@ async function verwerkOndertekeningNaSignering(record, contextLog) {
   }
 }
 
-module.exports = { verwerkOndertekeningNaSignering, genereerOffertePdf, genereerLogPdf };
+module.exports = {
+  verwerkOndertekeningNaSignering,
+  genereerOffertePdf,
+  genereerLogPdf,
+  haalGraphToken,
+  haalDataverseToken,
+};
