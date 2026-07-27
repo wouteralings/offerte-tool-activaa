@@ -35,6 +35,7 @@ import {
   EyeOff,
   Download,
   Mail,
+  ExternalLink,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -1887,6 +1888,27 @@ export default function OffertetoolApp() {
 
           {ingelogd && (
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <a
+                href="https://mijn.activaa.nl/medewerker"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  border: "1px solid #C8CDC5",
+                  background: "#fff",
+                  color: "#5B6259",
+                  padding: "7px 12px",
+                  borderRadius: 20,
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  textDecoration: "none",
+                }}
+              >
+                <ExternalLink size={14} />
+                Klantportaal Activaa
+              </a>
               <div style={{ textAlign: "right" }}>
                 <div style={{ fontSize: 13, fontWeight: 600 }}>{huidigeGebruiker.naam}</div>
                 <div style={{ fontSize: 11.5, color: "#8A9089" }}>{huidigeGebruiker.rol}</div>
