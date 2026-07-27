@@ -248,7 +248,6 @@ const INITIAL_CATALOGUS = [
 
 const STAPPEN = [
   { key: "login", label: "Aanmelden", icon: Shield },
-  { key: "instellingen", label: "Afzender", icon: SettingsIcon },
   { key: "klant", label: "Klant", icon: Users },
   { key: "diensten", label: "Diensten kiezen", icon: ClipboardList },
   { key: "prijzen", label: "Prijzen", icon: Euro },
@@ -497,7 +496,7 @@ function genereerStandaardLogo() {
 
 export default function OffertetoolApp() {
   const [stap, setStap] = useState("login");
-  const [terugNaarStap, setTerugNaarStap] = useState("instellingen");
+  const [terugNaarStap, setTerugNaarStap] = useState("klant");
   const [ingelogd, setIngelogd] = useState(false);
   const [bezigMetInloggen, setBezigMetInloggen] = useState(false);
 
@@ -539,7 +538,7 @@ export default function OffertetoolApp() {
               .join(""),
           });
           setIngelogd(true);
-          setStap((huidige) => (huidige === "login" ? "instellingen" : huidige));
+          setStap((huidige) => (huidige === "login" ? "klant" : huidige));
         }
       })
       .catch(() => {
@@ -779,6 +778,10 @@ export default function OffertetoolApp() {
   // mailStatus: per groep klanten (samengevoegde ID's) de status van het versturen —
   // { [sleutel]: { status: "bezig"|"verzonden"|"fout", bericht?, van? } }
   const [mailStatus, setMailStatus] = useState({});
+  // mailConcepten: per groep klanten de (nog te bewerken) onderwerp/tekst, vóór verzending.
+  // mailConceptOpenSleutel: welke groep op dit moment het bewerkscherm open heeft staan.
+  const [mailConcepten, setMailConcepten] = useState({});
+  const [mailConceptOpenSleutel, setMailConceptOpenSleutel] = useState(null);
 
   async function laadOffertesLijst() {
     setOffertesLijstBezig(true);
@@ -1109,6 +1112,41 @@ export default function OffertetoolApp() {
     perDienst: {}, // { [dienstId]: tekst }
   });
   const [tekstenGeladen, setTekstenGeladen] = useState(false);
+
+  const STANDAARD_MAILTEKST_DEFAULT =
+    "Beste {contact},\n\n" +
+    "Hierbij ontvangt u onze offerte. U kunt deze inzien en digitaal ondertekenen via onderstaande link:\n" +
+    "{link}\n\n" +
+    "Met vriendelijke groet,\n" +
+    "{ondertekenaar}";
+  const [standaardMailtekst, setStandaardMailtekst] = useState(STANDAARD_MAILTEKST_DEFAULT);
+  const [mailtekstGeladen, setMailtekstGeladen] = useState(false);
+
+  // Standaard mailtekst laden uit persistente opslag.
+  useEffect(() => {
+    let actief = true;
+    (async () => {
+      try {
+        const waarde = await opslagGet("mailtekst");
+        if (actief && waarde) {
+          setStandaardMailtekst(waarde);
+        }
+      } catch (e) {
+        // nog niets opgeslagen, standaardtekst blijft staan
+      } finally {
+        if (actief) setMailtekstGeladen(true);
+      }
+    })();
+    return () => {
+      actief = false;
+    };
+  }, []);
+
+  // Standaard mailtekst bewaren zodra 'ie wijzigt (pas nadat de eerste keer geladen is).
+  useEffect(() => {
+    if (!mailtekstGeladen) return;
+    opslagSet("mailtekst", standaardMailtekst).catch((e) => console.error("Opslaan mislukt:", e));
+  }, [standaardMailtekst, mailtekstGeladen]);
 
   // algemeneVoorwaarden: los te beheren, verschijnt als klikbare link op elke offerte
   const [algemeneVoorwaarden, setAlgemeneVoorwaarden] = useState({
@@ -1578,7 +1616,7 @@ export default function OffertetoolApp() {
     setTimeout(() => {
       setBezigMetInloggen(false);
       setIngelogd(true);
-      setStap("instellingen");
+      setStap("klant");
     }, 1400);
   }
 
@@ -1616,7 +1654,11 @@ export default function OffertetoolApp() {
     const i = stapIndex(stap);
     if (i > 0) setStap(STAPPEN[i - 1].key);
   }
-  const BEHEERSCHERMEN = ["catalogus", "teksten", "voorwaarden", "roadmap", "offertes"];
+  const BEHEERSCHERMEN = ["catalogus", "teksten", "voorwaarden", "roadmap", "offertes", "instellingen"];
+  function openAfzender() {
+    if (!BEHEERSCHERMEN.includes(stap)) setTerugNaarStap(stap);
+    setStap("instellingen");
+  }
   function openCatalogus() {
     if (!BEHEERSCHERMEN.includes(stap)) setTerugNaarStap(stap);
     setStap("catalogus");
@@ -1755,27 +1797,42 @@ export default function OffertetoolApp() {
   // Opent de eigen mail-app (Outlook/webmail) met een kant-en-klare mail naar de gekozen
   // klant, met de tekenlink erin. Er is bewust geen automatische verzendfunctie gebouwd —
   // dit geeft ruimte om het e-mailadres en de tekst nog even te controleren voor het versturen.
-  async function mailTekenLink(klanten) {
+  // Bouwt de bewerkbare conceptmail op basis van de standaard mailtekst (met plaatshouders
+  // ingevuld) en opent het bewerkscherm — er wordt nog niets verstuurd.
+  function openMailConcept(klanten) {
     const groep = Array.isArray(klanten) ? klanten : [klanten];
     const eerste = groep[0];
     const sleutel = groep.map((k) => k.id).join("+");
-    const id = await zorgVoorOfferteId();
-    if (!id) return;
-    const link = `${window.location.origin}/tekenen/${id}`;
+    const bedrijfsnamen = groep.map((k) => k.naam).join(" en ");
+    const onderwerp = `Offerte ${afzender.bedrijf}`;
+    const tekst = standaardMailtekst
+      .replaceAll("{contact}", eerste.contact || bedrijfsnamen || "")
+      .replaceAll("{ondertekenaar}", huidigeGebruiker?.naam || "");
+    setMailConcepten((prev) => ({ ...prev, [sleutel]: { onderwerp, tekst } }));
+    setMailStatus((prev) => ({ ...prev, [sleutel]: undefined }));
+    setMailConceptOpenSleutel(sleutel);
+  }
+
+  // Verstuurt het (mogelijk aangepaste) concept. De {link}-plaatshouder wordt hier pas
+  // definitief vervangen door de echte tekenlink, zodat die niet per ongeluk uit het concept
+  // wordt bewerkt/verwijderd zonder dat de gebruiker het doorheeft.
+  async function verstuurMailConcept(klanten) {
+    const groep = Array.isArray(klanten) ? klanten : [klanten];
+    const eerste = groep[0];
+    const sleutel = groep.map((k) => k.id).join("+");
+    const concept = mailConcepten[sleutel];
+    if (!concept) return;
+
     const email = mailAdressen[eerste.id] ?? eerste.email ?? "";
     if (!email.trim()) {
       setMailStatus((prev) => ({ ...prev, [sleutel]: { status: "fout", bericht: "Vul eerst een e-mailadres in." } }));
       return;
     }
-    // Bij meerdere klanten met dezelfde contactpersoon (komt voor: iemand kan bij
-    // meerdere bedrijven de primaire contactpersoon zijn) de bedrijfsnamen samen noemen.
-    const bedrijfsnamen = groep.map((k) => k.naam).join(" en ");
-    const onderwerp = `Offerte ${afzender.bedrijf}`;
-    const aanhef = eerste.contact ? `Beste ${eerste.contact},` : "Beste,";
-    const inleidingszin =
-      groep.length > 1
-        ? `Hierbij ontvangt u onze offerte voor ${bedrijfsnamen}. U kunt deze inzien en digitaal ondertekenen via onderstaande link:`
-        : "Hierbij ontvangt u onze offerte. U kunt deze inzien en digitaal ondertekenen via onderstaande link:";
+
+    const id = await zorgVoorOfferteId();
+    if (!id) return;
+    const link = `${window.location.origin}/tekenen/${id}`;
+    const volledigeTekst = concept.tekst.replaceAll("{link}", link);
 
     setMailStatus((prev) => ({ ...prev, [sleutel]: { status: "bezig" } }));
     try {
@@ -1784,16 +1841,14 @@ export default function OffertetoolApp() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           naar: email.trim(),
-          onderwerp,
-          aanhef,
-          inleidingszin,
-          link,
-          ondertekenaar: huidigeGebruiker?.naam || "",
+          onderwerp: concept.onderwerp,
+          tekst: volledigeTekst,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       setMailStatus((prev) => ({ ...prev, [sleutel]: { status: "verzonden", van: data.van } }));
+      setMailConceptOpenSleutel(null);
     } catch (e) {
       setMailStatus((prev) => ({ ...prev, [sleutel]: { status: "fout", bericht: e.message } }));
     }
@@ -2333,7 +2388,12 @@ export default function OffertetoolApp() {
                 <span style={{ fontSize: 13.5, color: "#5B6259" }}>dagen</span>
               </div>
             </div>
-            <StapNavigatie onVolgende={volgende} volgendeLabel="Klant kiezen" />
+            <div style={{ display: "flex", justifyContent: "flex-start", marginTop: 22 }}>
+              <button className="ot-btn-secondary" onClick={() => setStap(terugNaarStap)}>
+                <ChevronLeft size={15} />
+                Terug
+              </button>
+            </div>
           </StapWrapper>
         )}
 
@@ -2561,6 +2621,35 @@ export default function OffertetoolApp() {
                   </div>
                 </div>
               ))}
+            </div>
+
+            <div className="ot-cat-koptekst">
+              <span>Tekenlink per e-mail</span>
+            </div>
+            <div className="ot-card" style={{ padding: 18 }}>
+              <label className="ot-label">Standaard mailtekst</label>
+              <textarea
+                className="ot-input"
+                rows={7}
+                value={standaardMailtekst}
+                onChange={(e) => setStandaardMailtekst(e.target.value)}
+              />
+              <p style={{ fontSize: 11.5, color: "#8A9089", marginTop: 6 }}>
+                Beschikbare plaatshouders: <code>{"{contact}"}</code> (contactpersoon),{" "}
+                <code>{"{link}"}</code> (de tekenlink), <code>{"{ondertekenaar}"}</code> (naam van
+                degene die verstuurt). Bij het versturen kun je de tekst per keer nog aanpassen —
+                dit is alleen het startpunt.
+              </p>
+              {standaardMailtekst !== STANDAARD_MAILTEKST_DEFAULT && (
+                <button
+                  className="ot-btn-ghost"
+                  style={{ marginTop: 8 }}
+                  onClick={() => setStandaardMailtekst(STANDAARD_MAILTEKST_DEFAULT)}
+                >
+                  <RotateCcw size={12} />
+                  Terugzetten naar standaard
+                </button>
+              )}
             </div>
 
             <div style={{ display: "flex", justifyContent: "flex-start", marginTop: 22 }}>
@@ -3317,7 +3406,7 @@ export default function OffertetoolApp() {
               )}
             </div>
 
-            <StapNavigatie onVorige={vorige} onVolgende={volgende} volgendeDisabled={!kanNaarDiensten} volgendeLabel="Diensten kiezen" />
+            <StapNavigatie onVolgende={volgende} volgendeDisabled={!kanNaarDiensten} volgendeLabel="Diensten kiezen" />
           </StapWrapper>
         )}
 
@@ -4093,6 +4182,8 @@ export default function OffertetoolApp() {
                       const emailWaarde = mailAdressen[eerste.id] ?? eerste.email ?? "";
                       const klantNamenTekst = groep.klanten.map((k) => k.naam).join(" + ");
                       const status = mailStatus[groep.sleutel];
+                      const conceptOpen = mailConceptOpenSleutel === groep.sleutel;
+                      const concept = mailConcepten[groep.sleutel];
                       return (
                         <div key={groep.sleutel}>
                           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -4114,15 +4205,61 @@ export default function OffertetoolApp() {
                               }}
                               placeholder="e-mailadres@voorbeeld.nl"
                             />
-                            <button
-                              className="ot-btn-secondary"
-                              onClick={() => mailTekenLink(groep.klanten)}
-                              disabled={status?.status === "bezig"}
-                            >
-                              {status?.status === "verzonden" ? <Check size={14} /> : <Mail size={14} />}
-                              {status?.status === "bezig" ? "Bezig met versturen…" : status?.status === "verzonden" ? "Verzonden" : "Mail versturen"}
-                            </button>
+                            {!conceptOpen && (
+                              <button
+                                className="ot-btn-secondary"
+                                onClick={() => openMailConcept(groep.klanten)}
+                                disabled={status?.status === "bezig"}
+                              >
+                                {status?.status === "verzonden" ? <Check size={14} /> : <Mail size={14} />}
+                                {status?.status === "verzonden" ? "Nogmaals versturen" : "Mail opstellen"}
+                              </button>
+                            )}
                           </div>
+
+                          {conceptOpen && concept && (
+                            <div style={{ marginTop: 8, padding: 12, background: "#fff", border: "1px solid #C8CDC5", borderRadius: 8 }}>
+                              <label style={{ fontSize: 11, color: "#8A9089", display: "block", marginBottom: 3 }}>Onderwerp</label>
+                              <input
+                                className="ot-input"
+                                style={{ marginBottom: 8 }}
+                                value={concept.onderwerp}
+                                onChange={(e) =>
+                                  setMailConcepten((prev) => ({ ...prev, [groep.sleutel]: { ...prev[groep.sleutel], onderwerp: e.target.value } }))
+                                }
+                              />
+                              <label style={{ fontSize: 11, color: "#8A9089", display: "block", marginBottom: 3 }}>Tekst</label>
+                              <textarea
+                                className="ot-input"
+                                rows={7}
+                                value={concept.tekst}
+                                onChange={(e) =>
+                                  setMailConcepten((prev) => ({ ...prev, [groep.sleutel]: { ...prev[groep.sleutel], tekst: e.target.value } }))
+                                }
+                              />
+                              <p style={{ fontSize: 10.5, color: "#8A9089", marginTop: 4 }}>
+                                Laat <code>{"{link}"}</code> staan — die wordt bij het versturen automatisch de echte tekenlink.
+                              </p>
+                              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                                <button
+                                  className="ot-btn-secondary"
+                                  onClick={() => setMailConceptOpenSleutel(null)}
+                                  disabled={status?.status === "bezig"}
+                                >
+                                  Annuleren
+                                </button>
+                                <button
+                                  className="ot-btn-primary"
+                                  onClick={() => verstuurMailConcept(groep.klanten)}
+                                  disabled={status?.status === "bezig"}
+                                >
+                                  <Mail size={14} />
+                                  {status?.status === "bezig" ? "Bezig met versturen…" : "Versturen"}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
                           {status?.status === "verzonden" && (
                             <div style={{ fontSize: 11, color: "#2E7D4F", marginTop: 3 }}>
                               Verzonden vanaf {status.van}.
@@ -4136,8 +4273,8 @@ export default function OffertetoolApp() {
                     })}
                   </div>
                   <p style={{ fontSize: 11, color: "#8A9089", marginTop: 8 }}>
-                    Wordt rechtstreeks verzonden vanaf <strong>correspondentie@activaa.nl</strong>, met de
-                    tekenlink als klikbare link.
+                    Wordt rechtstreeks verzonden vanaf <strong>correspondentie@activaa.nl</strong> — je kunt de
+                    tekst voor het versturen nog aanpassen. Standaardtekst instellen kan bij "Teksten beheren".
                   </p>
                 </div>
               );
@@ -4176,6 +4313,34 @@ export default function OffertetoolApp() {
           </StapWrapper>
         )}
       </div>
+
+      {ingelogd && stap !== "login" && (
+        <button
+          onClick={openAfzender}
+          title="Afzendergegevens beheren"
+          style={{
+            position: "fixed",
+            left: 20,
+            bottom: 20,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            border: "1px solid #C8CDC5",
+            background: stap === "instellingen" ? "#1C5D8C" : "#fff",
+            color: stap === "instellingen" ? "#fff" : "#5B6259",
+            padding: "8px 14px",
+            borderRadius: 20,
+            fontSize: 12.5,
+            fontWeight: 600,
+            cursor: "pointer",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
+            zIndex: 20,
+          }}
+        >
+          <SettingsIcon size={14} />
+          Instellingen
+        </button>
+      )}
     </div>
   );
 }

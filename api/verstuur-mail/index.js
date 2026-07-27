@@ -12,6 +12,14 @@ function escapeHtml(tekst) {
     .replace(/"/g, "&quot;");
 }
 
+// Platte, door de gebruiker (evt. bewerkte) tekst omzetten naar simpele HTML: regeleinden
+// worden <br/>, en elke http(s)-link wordt automatisch klikbaar gemaakt.
+function tekstNaarHtml(tekst) {
+  const geescaped = escapeHtml(tekst);
+  const metLinks = geescaped.replace(/(https?:\/\/[^\s<]+)/g, (url) => `<a href="${url}">${url}</a>`);
+  return metLinks.replace(/\n/g, "<br/>");
+}
+
 module.exports = async function (context, req) {
   if (req.method !== "POST") {
     context.res = { status: 405, body: { error: "Methode niet ondersteund." } };
@@ -21,16 +29,13 @@ module.exports = async function (context, req) {
   const invoer = req.body || {};
   const naar = (invoer.naar || "").trim();
   const onderwerp = (invoer.onderwerp || "Offerte").trim();
-  const aanhef = (invoer.aanhef || "Beste,").trim();
-  const inleidingszin = (invoer.inleidingszin || "").trim();
-  const link = (invoer.link || "").trim();
-  const ondertekenaar = (invoer.ondertekenaar || "").trim();
+  const tekst = (invoer.tekst || "").trim();
 
-  if (!naar || !link) {
+  if (!naar || !tekst) {
     context.res = {
       status: 400,
       headers: { "Content-Type": "application/json" },
-      body: { error: "E-mailadres en tekenlink zijn verplicht." },
+      body: { error: "E-mailadres en berichttekst zijn verplicht." },
     };
     return;
   }
@@ -38,12 +43,7 @@ module.exports = async function (context, req) {
   try {
     const token = await haalGraphToken();
 
-    const htmlBody = `
-      <p>${escapeHtml(aanhef)}</p>
-      <p>${escapeHtml(inleidingszin)}<br/>
-      <a href="${link}">${link}</a></p>
-      <p>Met vriendelijke groet,<br/>${escapeHtml(ondertekenaar)}</p>
-    `;
+    const htmlBody = `<div>${tekstNaarHtml(tekst)}</div>`;
 
     const bericht = {
       message: {
