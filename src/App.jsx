@@ -1751,15 +1751,23 @@ export default function OffertetoolApp() {
   // Opent de eigen mail-app (Outlook/webmail) met een kant-en-klare mail naar de gekozen
   // klant, met de tekenlink erin. Er is bewust geen automatische verzendfunctie gebouwd —
   // dit geeft ruimte om het e-mailadres en de tekst nog even te controleren voor het versturen.
-  async function mailTekenLink(klant) {
+  async function mailTekenLink(klanten) {
+    const groep = Array.isArray(klanten) ? klanten : [klanten];
+    const eerste = groep[0];
     const id = await zorgVoorOfferteId();
     if (!id) return;
     const link = `${window.location.origin}/tekenen/${id}`;
-    const email = mailAdressen[klant.id] ?? klant.email ?? "";
+    const email = mailAdressen[eerste.id] ?? eerste.email ?? "";
+    // Bij meerdere klanten met dezelfde contactpersoon (komt voor: iemand kan bij
+    // meerdere bedrijven de primaire contactpersoon zijn) de bedrijfsnamen samen noemen.
+    const bedrijfsnamen = groep.map((k) => k.naam).join(" en ");
     const onderwerp = `Offerte ${afzender.bedrijf}`;
-    const aanhef = klant.contact ? `Beste ${klant.contact},` : "Beste,";
-    const body =
-      `${aanhef}\n\nHierbij ontvangt u onze offerte. U kunt deze inzien en digitaal ondertekenen via onderstaande link:\n${link}\n\nMet vriendelijke groet,\n${huidigeGebruiker?.naam || ""}`;
+    const aanhef = eerste.contact ? `Beste ${eerste.contact},` : "Beste,";
+    const inleidingszin =
+      groep.length > 1
+        ? `Hierbij ontvangt u onze offerte voor ${bedrijfsnamen}. U kunt deze inzien en digitaal ondertekenen via onderstaande link:`
+        : "Hierbij ontvangt u onze offerte. U kunt deze inzien en digitaal ondertekenen via onderstaande link:";
+    const body = `${aanhef}\n\n${inleidingszin}\n${link}\n\nMet vriendelijke groet,\n${huidigeGebruiker?.naam || ""}`;
     const mailtoUrl = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(onderwerp)}&body=${encodeURIComponent(body)}`;
     window.location.href = mailtoUrl;
   }
@@ -4009,34 +4017,68 @@ export default function OffertetoolApp() {
               </div>
             )}
 
-            <div style={{ padding: "14px 16px", background: "#FAFAF7", border: "1px solid #E2E4DF", borderRadius: 10, marginTop: 20 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#5B6259", marginBottom: 10 }}>
-                Tekenlink per e-mail aanbieden
-              </div>
-              <div style={{ display: "grid", gap: 10 }}>
-                {gekozenKlanten.map((klant) => (
-                  <div key={klant.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 12.5, minWidth: 140, color: "#3A4038" }}>{klant.naam}</span>
-                    <input
-                      className="ot-input"
-                      type="email"
-                      style={{ flex: 1, minWidth: 200 }}
-                      value={mailAdressen[klant.id] ?? klant.email ?? ""}
-                      onChange={(e) => setMailAdressen((prev) => ({ ...prev, [klant.id]: e.target.value }))}
-                      placeholder="e-mailadres@voorbeeld.nl"
-                    />
-                    <button className="ot-btn-secondary" onClick={() => mailTekenLink(klant)}>
-                      <Mail size={14} />
-                      Mail versturen
-                    </button>
+            {(() => {
+              // Klanten groeperen op (eventueel aangepast) e-mailadres — als dezelfde
+              // contactpersoon bij meerdere klanten hoort, komt die maar één keer in de
+              // lijst, met beide klantnamen erbij, in plaats van 2x hetzelfde adres.
+              const mailGroepen = [];
+              const indexPerSleutel = new Map();
+              gekozenKlanten.forEach((klant) => {
+                const email = (mailAdressen[klant.id] ?? klant.email ?? "").trim().toLowerCase();
+                const sleutel = email || `__geen-adres__${klant.id}`;
+                if (indexPerSleutel.has(sleutel)) {
+                  mailGroepen[indexPerSleutel.get(sleutel)].klanten.push(klant);
+                } else {
+                  indexPerSleutel.set(sleutel, mailGroepen.length);
+                  mailGroepen.push({ sleutel, klanten: [klant] });
+                }
+              });
+
+              return (
+                <div style={{ padding: "14px 16px", background: "#FAFAF7", border: "1px solid #E2E4DF", borderRadius: 10, marginTop: 20 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#5B6259", marginBottom: 10 }}>
+                    Tekenlink per e-mail aanbieden
                   </div>
-                ))}
-              </div>
-              <p style={{ fontSize: 11, color: "#8A9089", marginTop: 8 }}>
-                Opent je eigen mailprogramma met de tekenlink al ingevuld — controleer het adres en de tekst
-                voordat je verstuurt.
-              </p>
-            </div>
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {mailGroepen.map((groep) => {
+                      const eerste = groep.klanten[0];
+                      const emailWaarde = mailAdressen[eerste.id] ?? eerste.email ?? "";
+                      const klantNamenTekst = groep.klanten.map((k) => k.naam).join(" + ");
+                      return (
+                        <div key={groep.sleutel} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 12.5, minWidth: 140, color: "#3A4038" }}>{klantNamenTekst}</span>
+                          <input
+                            className="ot-input"
+                            type="email"
+                            style={{ flex: 1, minWidth: 200 }}
+                            value={emailWaarde}
+                            onChange={(e) => {
+                              const nieuweWaarde = e.target.value;
+                              setMailAdressen((prev) => {
+                                const next = { ...prev };
+                                groep.klanten.forEach((k) => {
+                                  next[k.id] = nieuweWaarde;
+                                });
+                                return next;
+                              });
+                            }}
+                            placeholder="e-mailadres@voorbeeld.nl"
+                          />
+                          <button className="ot-btn-secondary" onClick={() => mailTekenLink(groep.klanten)}>
+                            <Mail size={14} />
+                            Mail versturen
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p style={{ fontSize: 11, color: "#8A9089", marginTop: 8 }}>
+                    Opent je eigen mailprogramma met de tekenlink al ingevuld — controleer het adres en de tekst
+                    voordat je verstuurt.
+                  </p>
+                </div>
+              );
+            })()}
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20 }}>
               <button className="ot-btn-secondary" onClick={vorige}>
