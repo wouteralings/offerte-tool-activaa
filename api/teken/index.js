@@ -1,5 +1,5 @@
 const { BlobServiceClient } = require("@azure/storage-blob");
-const { verwerkOndertekeningNaSignering } = require("../_gedeeld/onboarding");
+const { verwerkOndertekeningNaSignering, genereerOffertePdf } = require("../_gedeeld/onboarding");
 
 // Zelfde container/blob-indeling als api/offerte, zodat dit gewoon dezelfde offerte-records
 // leest en bijwerkt — deze Function is puur een publiek, anoniem toegankelijk "loket" erbovenop.
@@ -70,11 +70,39 @@ module.exports = async function (context, req) {
       // bij een schrijffout, dat mag het bekijken van de offerte niet in de weg staan.
       try {
         record.logboek = Array.isArray(record.logboek) ? record.logboek : [];
-        record.logboek.push({ gebeurtenis: "geopend", op: nu, ip });
+        record.logboek.push({ gebeurtenis: req.query?.formaat === "pdf" ? "pdf-gedownload" : "geopend", op: nu, ip });
         const buffer = Buffer.from(JSON.stringify(record), "utf-8");
         await blobClient.upload(buffer, buffer.length, { overwrite: true });
       } catch (e) {
-        context.log.error("Kon 'geopend' niet loggen:", e);
+        context.log.error("Kon gebeurtenis niet loggen:", e);
+      }
+
+      // Rechtstreekse PDF-download — zelfde generator die ook gebruikt wordt om het
+      // ondertekende bestand naar SharePoint te sturen, maar hier al bruikbaar vóór
+      // ondertekening (zonder handtekeningblok, dat verschijnt vanzelf zodra die er is).
+      if (req.query?.formaat === "pdf") {
+        try {
+          const pdfBytes = await genereerOffertePdf(record);
+          const klantnaam = (record.klantNamen || [])[0] || "offerte";
+          const veiligeNaam = klantnaam.replace(/[\\/:*?"<>|]/g, "-").trim();
+          context.res = {
+            status: 200,
+            isRaw: true,
+            headers: {
+              "Content-Type": "application/pdf",
+              "Content-Disposition": `attachment; filename="Offerte - ${veiligeNaam}.pdf"`,
+            },
+            body: Buffer.from(pdfBytes),
+          };
+        } catch (e) {
+          context.log.error("PDF genereren mislukt:", e);
+          context.res = {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+            body: { error: "PDF genereren is mislukt.", detail: String(e) },
+          };
+        }
+        return;
       }
 
       context.res = {

@@ -199,8 +199,26 @@ export default function TekenPagina({ id }) {
     </div>
   );
 
-  function downloadPdf() {
-    window.print();
+  const [pdfBezig, setPdfBezig] = useState(false);
+  async function downloadPdf() {
+    setPdfBezig(true);
+    try {
+      const res = await fetch(`/api/teken/${encodeURIComponent(id)}?formaat=pdf`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `Offerte - ${(record?.klantNamen?.[0] || "offerte")}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      window.alert("PDF downloaden is helaas niet gelukt. Probeer het nogmaals.");
+    } finally {
+      setPdfBezig(false);
+    }
   }
 
   return (
@@ -229,6 +247,7 @@ export default function TekenPagina({ id }) {
             <button
               className="no-print"
               onClick={downloadPdf}
+              disabled={pdfBezig}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -240,11 +259,12 @@ export default function TekenPagina({ id }) {
                 borderRadius: 8,
                 fontSize: 12.5,
                 fontWeight: 600,
-                cursor: "pointer",
+                cursor: pdfBezig ? "default" : "pointer",
+                opacity: pdfBezig ? 0.6 : 1,
               }}
             >
               <Download size={14} />
-              PDF downloaden
+              {pdfBezig ? "Bezig…" : "PDF downloaden"}
             </button>
           </div>
         </div>

@@ -1952,7 +1952,7 @@ export default function OffertetoolApp() {
       <div style={{ borderBottom: "1px solid #E2E4DF", background: "#FFFFFF" }}>
         <div
           style={{
-            maxWidth: 1040,
+            maxWidth: 1600,
             margin: "0 auto",
             padding: "16px 24px",
             display: "flex",
@@ -2047,7 +2047,7 @@ export default function OffertetoolApp() {
         <div style={{ borderBottom: "1px solid #E2E4DF", background: "#FBFBF9" }}>
           <div
             style={{
-              maxWidth: 1040,
+              maxWidth: 1600,
               margin: "0 auto",
               padding: "14px 24px",
               display: "flex",
@@ -2186,7 +2186,7 @@ export default function OffertetoolApp() {
         </div>
       )}
 
-      <div style={{ maxWidth: 1040, margin: "0 auto", padding: "36px 24px 60px" }}>
+      <div style={{ maxWidth: 1600, margin: "0 auto", padding: "36px 24px 60px" }}>
         {/* -------------------- LOGIN -------------------- */}
         {stap === "login" && !authGecontroleerd && (
           <div style={{ display: "flex", justifyContent: "center", paddingTop: 80, color: "#8A9089", fontSize: 13.5 }}>
