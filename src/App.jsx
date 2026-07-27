@@ -1817,10 +1817,9 @@ export default function OffertetoolApp() {
   // dit geeft ruimte om het e-mailadres en de tekst nog even te controleren voor het versturen.
   // Bouwt de bewerkbare conceptmail op basis van de standaard mailtekst (met plaatshouders
   // ingevuld) en opent het bewerkscherm — er wordt nog niets verstuurd.
-  function openMailConcept(klanten) {
+  function openMailConcept(sleutel, klanten) {
     const groep = Array.isArray(klanten) ? klanten : [klanten];
     const eerste = groep[0];
-    const sleutel = groep.map((k) => k.id).join("+");
     const bedrijfsnamen = groep.map((k) => k.naam).join(" en ");
     const onderwerp = `Offerte ${afzender.bedrijf}`;
     const tekst = standaardMailtekst
@@ -1834,10 +1833,9 @@ export default function OffertetoolApp() {
   // Verstuurt het (mogelijk aangepaste) concept. De {link}-plaatshouder wordt hier pas
   // definitief vervangen door de echte tekenlink, zodat die niet per ongeluk uit het concept
   // wordt bewerkt/verwijderd zonder dat de gebruiker het doorheeft.
-  async function verstuurMailConcept(klanten) {
+  async function verstuurMailConcept(sleutel, klanten) {
     const groep = Array.isArray(klanten) ? klanten : [klanten];
     const eerste = groep[0];
-    const sleutel = groep.map((k) => k.id).join("+");
     const concept = mailConcepten[sleutel];
     if (!concept) return;
 
@@ -4243,7 +4241,7 @@ export default function OffertetoolApp() {
                             {!conceptOpen && (
                               <button
                                 className="ot-btn-secondary"
-                                onClick={() => openMailConcept(groep.klanten)}
+                                onClick={() => openMailConcept(groep.sleutel, groep.klanten)}
                                 disabled={status?.status === "bezig"}
                               >
                                 {status?.status === "verzonden" ? <Check size={14} /> : <Mail size={14} />}
@@ -4285,7 +4283,7 @@ export default function OffertetoolApp() {
                                 </button>
                                 <button
                                   className="ot-btn-primary"
-                                  onClick={() => verstuurMailConcept(groep.klanten)}
+                                  onClick={() => verstuurMailConcept(groep.sleutel, groep.klanten)}
                                   disabled={status?.status === "bezig"}
                                 >
                                   <Mail size={14} />
