@@ -110,6 +110,7 @@ module.exports = async function (context, req) {
       const email = (invoer.email || "").trim();
       const akkoord = !!invoer.akkoord;
       const opmerking = (invoer.opmerking || "").trim();
+      const handtekening = (invoer.handtekening || "").trim(); // base64 PNG data-URL vanaf het canvas
 
       if (!naam || !email) {
         context.res = {
@@ -119,8 +120,18 @@ module.exports = async function (context, req) {
         };
         return;
       }
+      // Een getekende handtekening is alleen verplicht bij akkoord — bij afwijzen hoeft er
+      // niets getekend te worden.
+      if (akkoord && (!handtekening || !handtekening.startsWith("data:image/"))) {
+        context.res = {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+          body: { error: "Handtekening ontbreekt." },
+        };
+        return;
+      }
 
-      record.ondertekening = { naam, email, opmerking, akkoord, ip, op: nu };
+      record.ondertekening = { naam, email, opmerking, akkoord, handtekening: akkoord ? handtekening : null, ip, op: nu };
       record.status = akkoord ? "geaccepteerd" : "niet_geaccepteerd";
       record.gewijzigdOp = nu;
       record.gewijzigdDoor = `${naam} (klant)`;

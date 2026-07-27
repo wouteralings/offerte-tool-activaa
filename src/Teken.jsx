@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from "react";
-import { Check, X, Loader2, ShieldCheck, ShieldAlert } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Check, X, Loader2, ShieldCheck, ShieldAlert, Eraser } from "lucide-react";
 import { ACTIVAA_LOGO, CATEGORIE_LABELS, currency, datumTijd, offerteStatusInfo } from "./App.jsx";
 
 // Publieke, niet-ingelogde pagina waarmee een klant een offerte kan bekijken en digitaal kan
-// "ondertekenen" (naam + e-mail + vinkje akkoord) of expliciet kan afwijzen. Het offerte-ID in
-// de link functioneert als toegangssleutel — er is bewust geen Microsoft-login voor nodig,
-// zodat klanten die niet bij Activaa werken de link gewoon kunnen openen.
+// ondertekenen (naam + e-mail + een echte, met muis/vinger getekende handtekening) of expliciet
+// kan afwijzen. Het offerte-ID in de link functioneert als toegangssleutel — er is bewust geen
+// Microsoft-login voor nodig, zodat klanten die niet bij Activaa werken de link gewoon kunnen
+// openen.
 export default function TekenPagina({ id }) {
   const [laden, setLaden] = useState(true);
   const [fout, setFout] = useState(null);
@@ -15,8 +16,61 @@ export default function TekenPagina({ id }) {
   const [email, setEmail] = useState("");
   const [opmerking, setOpmerking] = useState("");
   const [bezig, setBezig] = useState(false);
-  const [resultaat, setResultaat] = useState(null); // { akkoord, naam, op } na succesvolle actie
+  const [resultaat, setResultaat] = useState(null); // { akkoord, naam, op, handtekening } na succesvolle actie
   const [inzendFout, setInzendFout] = useState(null);
+
+  // Handtekening-canvas: tekenen met muis of vinger.
+  const canvasRef = useRef(null);
+  const tekentRef = useRef(false);
+  const laatstePuntRef = useRef(null);
+  const [handtekeningLeeg, setHandtekeningLeeg] = useState(true);
+
+  function canvasPositie(canvas, event) {
+    const rect = canvas.getBoundingClientRect();
+    const punt = event.touches ? event.touches[0] : event;
+    return {
+      x: ((punt.clientX - rect.left) / rect.width) * canvas.width,
+      y: ((punt.clientY - rect.top) / rect.height) * canvas.height,
+    };
+  }
+
+  function tekenStart(event) {
+    event.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    tekentRef.current = true;
+    laatstePuntRef.current = canvasPositie(canvas, event);
+  }
+
+  function tekenBeweeg(event) {
+    if (!tekentRef.current) return;
+    event.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const nieuw = canvasPositie(canvas, event);
+    ctx.strokeStyle = "#1C2E3D";
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(laatstePuntRef.current.x, laatstePuntRef.current.y);
+    ctx.lineTo(nieuw.x, nieuw.y);
+    ctx.stroke();
+    laatstePuntRef.current = nieuw;
+    setHandtekeningLeeg(false);
+  }
+
+  function tekenStop() {
+    tekentRef.current = false;
+  }
+
+  function wisHandtekening() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+    setHandtekeningLeeg(true);
+  }
 
   useEffect(() => {
     (async () => {
@@ -41,13 +95,18 @@ export default function TekenPagina({ id }) {
       setInzendFout("Vul zowel je naam als je e-mailadres in.");
       return;
     }
+    if (akkoord && handtekeningLeeg) {
+      setInzendFout("Zet eerst je handtekening in het vak hierboven voordat je ondertekent.");
+      return;
+    }
     setInzendFout(null);
     setBezig(true);
     try {
+      const handtekening = akkoord && canvasRef.current ? canvasRef.current.toDataURL("image/png") : null;
       const res = await fetch(`/api/teken/${encodeURIComponent(id)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ naam: naam.trim(), email: email.trim(), opmerking: opmerking.trim(), akkoord }),
+        body: JSON.stringify({ naam: naam.trim(), email: email.trim(), opmerking: opmerking.trim(), akkoord, handtekening }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -233,6 +292,15 @@ export default function TekenPagina({ id }) {
                   Door {definitieveOndertekening.naam} ({definitieveOndertekening.email})<br />
                   op {datumTijd(definitieveOndertekening.op)}
                 </div>
+                {definitieveOndertekening.handtekening && (
+                  <div style={{ marginTop: 10 }}>
+                    <img
+                      src={definitieveOndertekening.handtekening}
+                      alt="Handtekening"
+                      style={{ maxWidth: 260, background: "#fff", border: "1px solid #E2E4DF", borderRadius: 6 }}
+                    />
+                  </div>
+                )}
                 <div style={{ marginTop: 8, fontSize: 11.5, color: "#8A9089" }}>
                   Vastgelegd inclusief tijdstip en IP-adres, als bevestiging van deze reactie.
                 </div>
@@ -266,6 +334,53 @@ export default function TekenPagina({ id }) {
                     placeholder="Eventuele opmerkingen…"
                   />
                 </div>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                    <label style={{ fontSize: 12, fontWeight: 700 }}>
+                      Handtekening (nodig om akkoord te geven — teken met muis of vinger)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={wisHandtekening}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                        border: "none",
+                        background: "none",
+                        color: "#8A9089",
+                        fontSize: 11.5,
+                        cursor: "pointer",
+                        padding: 2,
+                      }}
+                    >
+                      <Eraser size={12} />
+                      Wissen
+                    </button>
+                  </div>
+                  <canvas
+                    ref={canvasRef}
+                    width={640}
+                    height={180}
+                    onMouseDown={tekenStart}
+                    onMouseMove={tekenBeweeg}
+                    onMouseUp={tekenStop}
+                    onMouseLeave={tekenStop}
+                    onTouchStart={tekenStart}
+                    onTouchMove={tekenBeweeg}
+                    onTouchEnd={tekenStop}
+                    style={{
+                      width: "100%",
+                      height: 140,
+                      display: "block",
+                      background: "#FAFAF7",
+                      border: "1px solid #C8CDC5",
+                      borderRadius: 8,
+                      touchAction: "none",
+                      cursor: "crosshair",
+                    }}
+                  />
+                </div>
               </div>
 
               {inzendFout && (
@@ -288,7 +403,7 @@ export default function TekenPagina({ id }) {
                     fontSize: 14,
                     fontWeight: 700,
                     cursor: bezig ? "default" : "pointer",
-                    opacity: bezig ? 0.6 : 1,
+                    opacity: bezig ? 0.6 : handtekeningLeeg ? 0.5 : 1,
                   }}
                 >
                   <Check size={16} />
@@ -317,8 +432,9 @@ export default function TekenPagina({ id }) {
                 </button>
               </div>
               <p style={{ fontSize: 11, color: "#8A9089", marginTop: 12 }}>
-                Door hierop te klikken bevestig je dat jij deze reactie geeft. We leggen daarbij je naam,
-                e-mailadres, het tijdstip en je IP-adres vast als bewijs.
+                Voor akkoord is een handtekening in het vak hierboven verplicht; voor "Niet akkoord" hoeft dat niet.
+                Door te versturen bevestig je dat jij deze reactie geeft. We leggen daarbij je naam, e-mailadres,
+                handtekening, het tijdstip en je IP-adres vast als bewijs.
               </p>
             </>
           )}

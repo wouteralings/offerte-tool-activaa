@@ -2951,6 +2951,13 @@ export default function OffertetoolApp() {
                                             </>
                                           )}
                                         </div>
+                                        {logboekRecord.ondertekening.handtekening && (
+                                          <img
+                                            src={logboekRecord.ondertekening.handtekening}
+                                            alt="Handtekening"
+                                            style={{ maxWidth: 220, marginTop: 8, background: "#fff", border: "1px solid #E2E4DF", borderRadius: 6 }}
+                                          />
+                                        )}
                                       </div>
                                     ) : (
                                       <span style={{ fontSize: 12.5, color: "#8A9089" }}>Nog niet ondertekend of afgewezen.</span>

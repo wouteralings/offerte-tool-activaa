@@ -10,6 +10,10 @@
       }
     }
   },
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/assets/*", "/api/*", "*.{png,jpg,jpeg,svg,ico,css,js,json}"]
+  },
   "routes": [
     {
       "route": "/tekenen/*",
