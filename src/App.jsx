@@ -2841,6 +2841,7 @@ export default function OffertetoolApp() {
 
             {gefilterdeOffertes.length > 0 && (
               <div className="ot-card" style={{ padding: 0, overflow: "hidden" }}>
+                <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: "#F0EEE6", textAlign: "left" }}>
@@ -2867,7 +2868,7 @@ export default function OffertetoolApp() {
                       <th style={{ padding: "10px 14px", fontWeight: 700, color: "#5B6259" }}>Bekeken</th>
                       <th style={{ padding: "10px 14px", fontWeight: 700, color: "#5B6259" }}>Opgemaakt door</th>
                       <th style={{ padding: "10px 14px", fontWeight: 700, color: "#5B6259" }}>Laatst gewijzigd</th>
-                      <th style={{ padding: "10px 14px" }} />
+                      <th style={{ padding: "10px 14px", position: "sticky", right: 0, background: "#F0EEE6" }} />
                     </tr>
                   </thead>
                   <tbody>
@@ -2946,7 +2947,17 @@ export default function OffertetoolApp() {
                               <span style={{ color: "#A5AA9F" }}>—</span>
                             )}
                           </td>
-                          <td style={{ padding: "10px 14px", textAlign: "right", whiteSpace: "nowrap" }}>
+                          <td
+                            style={{
+                              padding: "10px 14px",
+                              textAlign: "right",
+                              whiteSpace: "nowrap",
+                              position: "sticky",
+                              right: 0,
+                              background: offertesSelectie.has(o.id) ? "#EAF2F8" : "#fff",
+                              boxShadow: "-4px 0 6px -4px rgba(0,0,0,0.15)",
+                            }}
+                          >
                             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                               <button className="ot-btn-ghost" onClick={() => toggleLogboek(o.id)}>
                                 <ScrollText size={13} />
@@ -3058,6 +3069,7 @@ export default function OffertetoolApp() {
                     })}
                   </tbody>
                 </table>
+                </div>
               </div>
             )}
 
