@@ -112,10 +112,28 @@ export function offerteStatusInfo(key) {
   return OFFERTE_STATUSSEN.find((s) => s.key === key) || OFFERTE_STATUSSEN[0];
 }
 
-let volgnr = 1;
+// Genereert een cryptografisch willekeurige ID (UUID v4). Belangrijk: het ID van een offerte
+// is tevens de enige "toegangssleutel" voor de publieke, niet-ingelogde tekenlink
+// (/tekenen/{id}) — die moet dus onraadbaar zijn, niet alleen uniek. Eerder gebruikte deze
+// functie Date.now() + een teller, wat voorspelbaar (en dus te raden) was.
+function willekeurigeUuid() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  // Fallback voor het zeldzame geval dat crypto.randomUUID() niet beschikbaar is (vereist een
+  // "secure context"/HTTPS — op de live site altijd het geval). Blijft cryptografisch veilig
+  // via crypto.getRandomValues(); alleen als zelfs dat ontbreekt, valt het terug op Math.random().
+  const bytes =
+    typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function"
+      ? crypto.getRandomValues(new Uint8Array(16))
+      : Array.from({ length: 16 }, () => Math.floor(Math.random() * 256));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 function nieuwId(prefix) {
-  volgnr += 1;
-  return `${prefix}-${Date.now().toString(36)}-${volgnr}`;
+  return `${prefix}-${willekeurigeUuid()}`;
 }
 
 const STANDAARD_ROADMAP = {
