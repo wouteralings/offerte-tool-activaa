@@ -1,4 +1,5 @@
 const { BlobServiceClient } = require("@azure/storage-blob");
+const { verwerkOndertekeningNaSignering } = require("../_gedeeld/onboarding");
 
 // Zelfde container/blob-indeling als api/offerte, zodat dit gewoon dezelfde offerte-records
 // leest en bijwerkt — deze Function is puur een publiek, anoniem toegankelijk "loket" erbovenop.
@@ -146,6 +147,18 @@ module.exports = async function (context, req) {
 
       const buffer = Buffer.from(JSON.stringify(record), "utf-8");
       await blobClient.upload(buffer, buffer.length, { overwrite: true });
+
+      // Alleen bij een echte ondertekening (akkoord) — niet bij afwijzen — het
+      // ondertekende document + logbestand naar SharePoint wegschrijven en de
+      // onboarding-taak aanmaken. Dit mag de ondertekening zelf nooit blokkeren
+      // of ongedaan maken: fouten hier worden alleen gelogd.
+      if (akkoord) {
+        try {
+          await verwerkOndertekeningNaSignering(record, (bericht) => context.log(`[onboarding] ${bericht}`));
+        } catch (e) {
+          context.log.error("[onboarding] Verwerking na ondertekening mislukt:", e);
+        }
+      }
 
       context.res = {
         headers: { "Content-Type": "application/json" },

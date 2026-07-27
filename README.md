@@ -197,3 +197,37 @@ Werking:
 DocuSign/Adobe Sign dat kunnen bieden). Voor de meeste offertes is dit prima bewijs, maar het is
 juridisch niet exact hetzelfde niveau als een "gekwalificeerde" handtekening.
 
+## Na ondertekening: PDF naar SharePoint + onboarding-taak
+
+Zodra een klant een offerte **ondertekent** (akkoord — niet bij afwijzen), gebeurt automatisch:
+
+1. Een PDF van de ondertekende offerte (met handtekening en ondertekeningsgegevens) en een los
+   PDF-logbestand (het volledige auditlog) worden aangemaakt.
+2. Beide worden weggeschreven naar SharePoint, op basis van het veld **`cr283_sharepoint`** op
+   het account (klant) in Dynamics:
+   ```
+   {cr283_sharepoint}/1. Intern/0. Permanent dossier/Offerte - {klant} - {datum}.pdf
+   {cr283_sharepoint}/1. Intern/0. Permanent dossier/Offerte - {klant} - {datum} - logbestand.pdf
+   ```
+3. Er wordt een taak aangemaakt in Dataverse: onderwerp **"Onboarding klant"**, veld
+   `cr283_soortactiecategorie` = **8009** (Backoffice), veld `cr283_urlbestand` = de link naar
+   het geüploade PDF-bestand, gekoppeld aan het account (`regardingobjectid`), en toegewezen aan
+   de **Manager** van dat account (`cr283_Manager`).
+
+Dit blokkeert de ondertekening zelf nooit — mislukt een van deze stappen (bijv. omdat de
+rechten hieronder nog niet zijn ingesteld), dan blijft de handtekening van de klant gewoon
+geldig en zichtbaar. De fout wordt alleen gelogd (Azure Application Insights / Function-logs).
+
+### Extra rechten nodig: Microsoft Graph (SharePoint)
+
+De bestaande app-registratie (`DYNAMICS_CLIENT_ID`) heeft hiervoor **naast** de Dataverse-
+rechten óók rechten op Microsoft Graph nodig:
+
+1. Ga naar die app-registratie in Entra ID → **API-machtigingen** → **+ Een machtiging toevoegen**.
+2. Kies **Microsoft APIs** → **Microsoft Graph** → **Application permissions** (niet Delegated).
+3. Zoek en vink aan: **`Sites.ReadWrite.All`**.
+4. **Add permissions**, en klik daarna op **"Grant admin consent for [tenant]"** — dit vereist
+   beheerdersrechten en is verplicht (Application permissions werken niet zonder).
+
+Zonder deze stap blijft het ondertekenen zelf gewoon werken; alleen de SharePoint-upload en de
+taak worden dan overgeslagen (met een foutmelding in de logs).
