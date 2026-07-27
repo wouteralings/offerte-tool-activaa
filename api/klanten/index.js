@@ -67,11 +67,15 @@ module.exports = async function (context, req) {
     // LET OP: de velden hieronder zijn gebaseerd op wat is opgegeven voor deze omgeving.
     // Klopt een veldnaam niet, pas 'm hieronder aan in zowel de $select/$filter/$expand als
     // de mapping verderop. We halen er 11 op (i.p.v. 10) om te kunnen zien of er nog meer zijn.
+    // "contact_customer_accounts" is de standaard Dataverse-relatie tussen een account en de
+    // contactpersonen die dat account als bedrijf hebben (contact.parentcustomerid) — zo kunnen
+    // we straks alle gekoppelde contactpersonen tonen, niet alleen de ingestelde primaire.
     const query =
       `${resource}/api/data/v9.2/accounts` +
       `?$select=accountid,name,address1_line1,address1_postalcode,address1_city,` +
       `cr283_huisnummer,cr283_huisnummertoevoeging,emailaddress1` +
-      `&$expand=primarycontactid($select=fullname),sk_Groepsnaam` +
+      `&$expand=primarycontactid($select=contactid,fullname,emailaddress1),sk_Groepsnaam,` +
+      `contact_customer_accounts($select=contactid,fullname,emailaddress1,jobtitle)` +
       filterDeel +
       `&$orderby=name asc` +
       `&$top=11`;
@@ -101,6 +105,13 @@ module.exports = async function (context, req) {
       const groep = rij.sk_Groepsnaam;
       const klantgroep = groep?.groepsnaam || groep?.sk_name || groep?.name || groep?.cr283_naam || "";
 
+      const contactpersonen = (rij.contact_customer_accounts || []).map((c) => ({
+        id: c.contactid,
+        naam: c.fullname || "(naam onbekend)",
+        email: c.emailaddress1 || "",
+        functie: c.jobtitle || "",
+      }));
+
       return {
         id: rij.accountid,
         naam: rij.name || "(naam onbekend)",
@@ -110,8 +121,10 @@ module.exports = async function (context, req) {
         postcode: rij.address1_postalcode || "",
         plaats: rij.address1_city || "",
         contact: rij.primarycontactid?.fullname || "",
-        email: rij.emailaddress1 || "",
+        email: rij.primarycontactid?.emailaddress1 || rij.emailaddress1 || "",
         segment: klantgroep,
+        contactpersonen,
+        primaireContactpersoonId: rij.primarycontactid?.contactid || null,
       };
     });
 

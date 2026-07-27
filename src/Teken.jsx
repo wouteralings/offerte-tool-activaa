@@ -82,6 +82,14 @@ export default function TekenPagina({ id }) {
         }
         const data = await res.json();
         setRecord(data);
+        // Vooraf invullen met de gekozen primaire contactpersoon — alleen ondubbelzinnig
+        // te doen als er precies één klant op deze offerte staat.
+        const klanten = data?.data?.gekozenKlanten || [];
+        const contacten = data?.data?.primaireContacten || {};
+        if (klanten.length === 1 && contacten[klanten[0].id]) {
+          setNaam(contacten[klanten[0].id].naam || "");
+          setEmail(contacten[klanten[0].id].email || "");
+        }
       } catch (e) {
         setFout("Er ging iets mis bij het laden. Controleer je internetverbinding.");
       } finally {
@@ -177,17 +185,43 @@ export default function TekenPagina({ id }) {
   const regelsPerKlant = record?.data?.regelsPerKlant || {};
   const gekozenKlanten = record?.data?.gekozenKlanten || [];
   const algemeneToelichting = record?.data?.algemeneToelichting || "";
+  const bijlageToelichtingen = record?.data?.bijlageToelichtingen || {};
+  const klantToelichtingen = record?.data?.klantToelichtingen || {};
+  const roadmap = record?.data?.roadmap || null;
+  const afzender = record?.data?.afzender || null;
+  const algemeneVoorwaarden = record?.data?.algemeneVoorwaarden || null;
+  const logo = record?.data?.logo || ACTIVAA_LOGO;
+  const primaireContacten = record?.data?.primaireContacten || {};
 
   return (
     <div style={scherm}>
       <div style={kaart}>
-        <div style={{ padding: "24px 28px", borderBottom: "1px solid #E2E4DF", display: "flex", alignItems: "center", gap: 14 }}>
-          <img src={ACTIVAA_LOGO} alt="Logo" style={{ height: 40, width: "auto" }} />
-          <div>
-            <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: ".05em", color: "#8A9089", fontWeight: 700 }}>
-              Offerte ter ondertekening
+        <div style={{ padding: "24px 28px", borderBottom: "1px solid #E2E4DF" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <img src={logo} alt="Logo" style={{ height: 40, width: "auto" }} />
+              <div>
+                <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: ".05em", color: "#8A9089", fontWeight: 700 }}>
+                  Offerte ter ondertekening
+                </div>
+                {klantNamen && <div style={{ fontSize: 15, fontWeight: 700 }}>{klantNamen}</div>}
+              </div>
             </div>
-            {klantNamen && <div style={{ fontSize: 15, fontWeight: 700 }}>{klantNamen}</div>}
+            {afzender && (
+              <div style={{ fontSize: 11.5, color: "#8A9089", textAlign: "right", lineHeight: 1.5 }}>
+                <div style={{ fontWeight: 700, color: "#5B6259" }}>{afzender.bedrijf}</div>
+                {afzender.adres && <div>{afzender.adres}</div>}
+                {(afzender.postcode || afzender.plaats) && (
+                  <div>{[afzender.postcode, afzender.plaats].filter(Boolean).join(" ")}</div>
+                )}
+                {record?.aangemaaktOp && (
+                  <div style={{ marginTop: 4 }}>
+                    Datum: {datumTijd(record.aangemaaktOp)}
+                    {afzender.geldigheid && ` · Geldig ${afzender.geldigheid} dagen`}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -209,6 +243,17 @@ export default function TekenPagina({ id }) {
               <div key={klant.id} style={{ marginBottom: 24 }}>
                 {gekozenKlanten.length > 1 && (
                   <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 8 }}>{klant.naam}</div>
+                )}
+                {primaireContacten[klant.id]?.naam && (
+                  <div style={{ fontSize: 12, color: "#8A9089", marginBottom: 4 }}>
+                    T.a.v. {primaireContacten[klant.id].naam}
+                    {primaireContacten[klant.id].functie ? ` — ${primaireContacten[klant.id].functie}` : ""}
+                  </div>
+                )}
+                {klantToelichtingen[klant.id] && (
+                  <p style={{ fontSize: 13, color: "#5B6259", marginBottom: 10, whiteSpace: "pre-wrap" }}>
+                    {klantToelichtingen[klant.id]}
+                  </p>
                 )}
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
@@ -262,6 +307,54 @@ export default function TekenPagina({ id }) {
               </div>
             );
           })}
+
+          {Object.entries(bijlageToelichtingen).some(([, tekst]) => (tekst || "").trim() !== "") && (
+            <div style={{ marginTop: 8, marginBottom: 24 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: "#B98237", marginBottom: 10 }}>
+                Toelichting per onderdeel
+              </div>
+              {Object.entries(regelsPerKlant)[0]?.[1]?.map((regel) =>
+                bijlageToelichtingen[regel.id] ? (
+                  <div key={regel.id} style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 2 }}>{regel.naam}</div>
+                    <p style={{ fontSize: 12.5, color: "#5B6259", margin: 0, whiteSpace: "pre-wrap" }}>
+                      {bijlageToelichtingen[regel.id]}
+                    </p>
+                  </div>
+                ) : null
+              )}
+            </div>
+          )}
+
+          {roadmap && (
+            <div style={{ marginTop: 8, marginBottom: 24 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 12 }}>{roadmap.titel}</div>
+              <div style={{ display: "grid", gap: 10 }}>
+                {roadmap.fases.map((fase) => (
+                  <div key={fase.id} style={{ padding: 12, borderRadius: 8, background: "#FAFAF7", border: "1px solid #E2E4DF" }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: "#1C5D8C", letterSpacing: ".04em" }}>{fase.label}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, marginTop: 2 }}>{fase.titel}</div>
+                    <div style={{ fontSize: 12, color: "#5B6259", marginTop: 6, whiteSpace: "pre-line" }}>{fase.puntenTekst}</div>
+                    {fase.resultaatTekst && (
+                      <div style={{ fontSize: 11.5, color: "#2E7D4F", marginTop: 6 }}>
+                        <strong>{fase.resultaatLabel}:</strong> {fase.resultaatTekst}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {algemeneVoorwaarden?.url && (
+            <p style={{ fontSize: 11.5, color: "#8A9089" }}>
+              Op deze offerte zijn onze{" "}
+              <a href={algemeneVoorwaarden.url} target="_blank" rel="noreferrer" style={{ color: "#1C5D8C" }}>
+                {algemeneVoorwaarden.titel || "algemene voorwaarden"}
+              </a>{" "}
+              van toepassing.
+            </p>
+          )}
         </div>
 
         <div style={{ padding: "24px 28px", borderTop: "1px solid #E2E4DF", background: "#FAFAF7" }}>

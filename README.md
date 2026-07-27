@@ -73,10 +73,17 @@ mee als bijbehorende Function App.
 
 ### Stap 5 — Veldnamen controleren
 
-De query in `api/src/functions/klanten.js` gaat uit van de standaard Dynamics-velden voor
-het entiteit `Account` (`name`, `address1_city`, `emailaddress1`, `primarycontactid`). Wijkt
+De query in `api/klanten/index.js` gaat uit van de standaard Dynamics-velden voor het
+entiteit `Account` (`name`, `address1_city`, `emailaddress1`, `primarycontactid`). Wijkt
 jullie omgeving hiervan af (aangepaste velden), pas dan de `$select`/`$expand` in dat
 bestand aan.
+
+**Contactpersonen per klant** (voor het kiezen van een primaire contactpersoon per offerte)
+worden opgehaald via `contact_customer_accounts` — de standaard Dataverse-relatie tussen een
+account en de contactpersonen die dát account als bedrijf hebben (`contact.parentcustomerid`).
+Als dit in jullie omgeving anders is ingericht, of als de Application User (stap 2) nog geen
+leesrechten heeft op de entiteit `Contact`, komt de lijst met contactpersonen leeg terug —
+werkt verder niet storend, maar het keuzeveld op de Bijlage-stap blijft dan leeg.
 
 ## Let op — overige onderdelen zijn nog niet live gekoppeld
 
