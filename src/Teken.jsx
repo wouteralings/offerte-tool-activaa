@@ -342,7 +342,7 @@ export default function TekenPagina({ id }) {
                   </tbody>
                 </table>
                 <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
-                  <div style={{ width: 220, fontSize: 13 }}>
+                  <div style={{ width: "100%", maxWidth: 220, fontSize: 13 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", color: "#5B6259" }}>
                       <span>Subtotaal</span>
                       <span>{currency(subtotaal)}</span>

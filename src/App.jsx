@@ -1908,6 +1908,10 @@ export default function OffertetoolApp() {
           color:#B98237; margin: 26px 0 10px; display:flex; align-items:center; justify-content:space-between;
         }
         .ot-cat-koptekst:first-child { margin-top:0; }
+        .ot-tweekolommen { display:grid; grid-template-columns: 1fr 1fr; gap:24px; }
+        @media (max-width: 560px) {
+          .ot-tweekolommen { grid-template-columns: 1fr; gap:16px; }
+        }
         @page {
           size: A4;
           margin: 12mm;
@@ -3519,7 +3523,13 @@ export default function OffertetoolApp() {
           >
             <div className="ot-card" style={{ padding: 0, overflow: "hidden" }}>
               <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 480 + gekozenKlanten.length * 200 }}>
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    minWidth: gekozenKlanten.length > 1 ? 480 + gekozenKlanten.length * 200 : undefined,
+                  }}
+                >
                   <thead>
                     <tr style={{ background: "#FBFBF9", borderBottom: "1px solid #E2E4DF" }}>
                       <th
@@ -3533,7 +3543,7 @@ export default function OffertetoolApp() {
                           position: "sticky",
                           left: 0,
                           background: "#FBFBF9",
-                          minWidth: 220,
+                          minWidth: gekozenKlanten.length > 1 ? 220 : undefined,
                         }}
                       >
                         Dienst
@@ -3541,7 +3551,14 @@ export default function OffertetoolApp() {
                       {gekozenKlanten.map((k) => (
                         <th
                           key={k.id}
-                          style={{ textAlign: "left", padding: "12px 16px", fontSize: 12, color: "#1C2321", minWidth: 200, borderLeft: "1px solid #E2E4DF" }}
+                          style={{
+                            textAlign: "left",
+                            padding: "12px 16px",
+                            fontSize: 12,
+                            color: "#1C2321",
+                            minWidth: gekozenKlanten.length > 1 ? 200 : undefined,
+                            borderLeft: "1px solid #E2E4DF",
+                          }}
                         >
                           {k.naam}
                         </th>
@@ -3874,7 +3891,7 @@ export default function OffertetoolApp() {
                     <div>KvK {afzender.kvk}</div>
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 28, paddingBottom: 24, borderBottom: "1px solid #E2E4DF" }}>
+                  <div className="ot-tweekolommen" style={{ marginBottom: 28, paddingBottom: 24, borderBottom: "1px solid #E2E4DF" }}>
                     <div>
                       <div className="ot-label">Aan</div>
                       <div style={{ fontWeight: 700, fontSize: 14.5 }}>{klant.naam}</div>
@@ -3943,7 +3960,7 @@ export default function OffertetoolApp() {
                   </table>
 
                   <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                    <div style={{ width: 240, fontSize: 13.5 }}>
+                    <div style={{ width: "100%", maxWidth: 240, fontSize: 13.5 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
                         <span style={{ color: "#5B6259" }}>Subtotaal</span>
                         <span>{currency(klantTotaalExcl)}</span>
