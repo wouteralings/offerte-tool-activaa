@@ -42,6 +42,9 @@ module.exports = async function (context, req) {
         // Alleen de samenvatting teruggeven voor het overzicht — niet de volledige
         // offerte-inhoud (diensten, prijzen, teksten), die is alleen nodig bij het
         // daadwerkelijk openen van één specifieke offerte.
+        const bekekenEvents = (record.logboek || []).filter((e) => e.gebeurtenis === "geopend");
+        const laatsteBekeken = bekekenEvents.length > 0 ? bekekenEvents[bekekenEvents.length - 1] : null;
+
         samenvattingen.push({
           id: record.id,
           klantNamen: record.klantNamen || [],
@@ -51,6 +54,9 @@ module.exports = async function (context, req) {
           aangemaaktDoor: record.aangemaaktDoor,
           gewijzigdOp: record.gewijzigdOp,
           gewijzigdDoor: record.gewijzigdDoor,
+          aantalBekeken: bekekenEvents.length,
+          laatstBekekenOp: laatsteBekeken?.op || null,
+          laatstBekekenIp: laatsteBekeken?.ip || null,
         });
       } catch (e) {
         // Eén corrupte/onleesbare offerte mag de rest van het overzicht niet blokkeren.

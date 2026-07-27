@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Check, X, Loader2, ShieldCheck, ShieldAlert, Eraser } from "lucide-react";
+import { Check, X, Loader2, ShieldCheck, ShieldAlert, Eraser, Download } from "lucide-react";
 import { ACTIVAA_LOGO, CATEGORIE_LABELS, currency, datumTijd, offerteStatusInfo } from "./App.jsx";
 
 // Publieke, niet-ingelogde pagina waarmee een klant een offerte kan bekijken en digitaal kan
@@ -190,9 +190,30 @@ export default function TekenPagina({ id }) {
   const afzender = record?.data?.afzender || null;
   const algemeneVoorwaarden = record?.data?.algemeneVoorwaarden || null;
   const logo = record?.data?.logo || ACTIVAA_LOGO;
+  const namens = record?.data?.namens || null;
+
+  const koptekstMetLogo = (titel) => (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+      <div className="offertetool-serif" style={{ fontSize: 22, fontWeight: 600 }}>{titel}</div>
+      {logo && <img src={logo} alt="Logo" style={{ maxWidth: 130, maxHeight: 50, objectFit: "contain", flexShrink: 0, marginLeft: 20 }} />}
+    </div>
+  );
+
+  function downloadPdf() {
+    window.print();
+  }
 
   return (
     <div style={scherm}>
+      <style>{`
+        @page { size: A4; margin: 12mm; }
+        @media print {
+          body * { visibility: hidden; }
+          #teken-print-gebied, #teken-print-gebied * { visibility: visible; }
+          #teken-print-gebied { position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 0; }
+          .no-print { display: none !important; }
+        }
+      `}</style>
       <div style={kaart}>
         <div style={{ padding: "24px 28px", borderBottom: "1px solid #E2E4DF" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
@@ -205,30 +226,31 @@ export default function TekenPagina({ id }) {
                 {klantNamen && <div style={{ fontSize: 15, fontWeight: 700 }}>{klantNamen}</div>}
               </div>
             </div>
-            {afzender && (
-              <div style={{ fontSize: 11.5, color: "#8A9089", textAlign: "right", lineHeight: 1.5 }}>
-                <div style={{ fontWeight: 700, color: "#5B6259" }}>{afzender.bedrijf}</div>
-                {afzender.adres && <div>{afzender.adres}</div>}
-                {(afzender.postcode || afzender.plaats) && (
-                  <div>{[afzender.postcode, afzender.plaats].filter(Boolean).join(" ")}</div>
-                )}
-                {record?.aangemaaktOp && (
-                  <div style={{ marginTop: 4 }}>
-                    Datum: {datumTijd(record.aangemaaktOp)}
-                    {afzender.geldigheid && ` · Geldig ${afzender.geldigheid} dagen`}
-                  </div>
-                )}
-              </div>
-            )}
+            <button
+              className="no-print"
+              onClick={downloadPdf}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                border: "1px solid #C8CDC5",
+                background: "#fff",
+                color: "#5B6259",
+                padding: "8px 14px",
+                borderRadius: 8,
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              <Download size={14} />
+              PDF downloaden
+            </button>
           </div>
         </div>
 
-        <div style={{ padding: "24px 28px" }}>
-          {algemeneToelichting && (
-            <p style={{ fontSize: 13.5, color: "#5B6259", marginBottom: 20, whiteSpace: "pre-wrap" }}>{algemeneToelichting}</p>
-          )}
-
-          {gekozenKlanten.map((klant) => {
+        <div id="teken-print-gebied" style={{ padding: "24px 28px" }}>
+          {gekozenKlanten.map((klant, idx) => {
             const regels = regelsPerKlant[klant.id] || [];
             const subtotaal = regels.reduce((s, r) => s + r.subtotaal, 0);
             const btw = subtotaal * 0.21;
@@ -238,18 +260,54 @@ export default function TekenPagina({ id }) {
               .filter((g) => g.items.length > 0);
 
             return (
-              <div key={klant.id} style={{ marginBottom: 24 }}>
+              <div key={klant.id} style={{ marginBottom: 36, paddingBottom: 28, borderBottom: idx < gekozenKlanten.length - 1 ? "2px dashed #E2E4DF" : "none" }}>
                 {gekozenKlanten.length > 1 && (
-                  <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 8 }}>{klant.naam}</div>
+                  <div style={{ fontSize: 11, color: "#B98237", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 8 }}>
+                    Offerte {idx + 1} van {gekozenKlanten.length}
+                  </div>
                 )}
-                {klant.contact && (
-                  <div style={{ fontSize: 12, color: "#8A9089", marginBottom: 4 }}>T.a.v. {klant.contact}</div>
+                {afzender && (
+                  <div style={{ fontSize: 12, color: "#8A9089", marginBottom: 16 }}>
+                    Datum: {datumTijd(record.aangemaaktOp)}
+                    {afzender.geldigheid && ` · Geldig ${afzender.geldigheid} dagen`}
+                  </div>
                 )}
-                {klantToelichtingen[klant.id] && (
-                  <p style={{ fontSize: 13, color: "#5B6259", marginBottom: 10, whiteSpace: "pre-wrap" }}>
-                    {klantToelichtingen[klant.id]}
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20, paddingBottom: 16, borderBottom: "1px solid #E2E4DF" }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: "#8A9089", fontWeight: 700, textTransform: "uppercase", marginBottom: 2 }}>Aan</div>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{klant.naam}</div>
+                    {klant.contact && <div style={{ fontSize: 12.5, color: "#5B6259" }}>{klant.contact}</div>}
+                    {klant.email && <div style={{ fontSize: 12.5, color: "#5B6259" }}>{klant.email}</div>}
+                  </div>
+                  {namens?.naam && (
+                    <div>
+                      <div style={{ fontSize: 11, color: "#8A9089", fontWeight: 700, textTransform: "uppercase", marginBottom: 2 }}>Namens</div>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{namens.naam}</div>
+                      {namens.email && namens.email.toLowerCase() !== namens.naam.toLowerCase() && (
+                        <div style={{ fontSize: 12.5, color: "#5B6259" }}>{namens.email}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {afzender?.inleiding && (
+                  <p style={{ fontSize: 13.5, color: "#3A4038", lineHeight: 1.6, marginBottom: 16, whiteSpace: "pre-wrap" }}>
+                    {afzender.inleiding}
                   </p>
                 )}
+
+                {klantToelichtingen[klant.id] && (
+                  <div style={{ background: "#EAF2F8", borderRadius: 8, padding: 14, marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#1C5D8C", textTransform: "uppercase", marginBottom: 4 }}>
+                      Speciaal voor {klant.naam}
+                    </div>
+                    <div style={{ fontSize: 13, color: "#3A4038", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                      {klantToelichtingen[klant.id]}
+                    </div>
+                  </div>
+                )}
+
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid #E2E4DF" }}>
@@ -299,40 +357,41 @@ export default function TekenPagina({ id }) {
                     </div>
                   </div>
                 </div>
+
+                {algemeneVoorwaarden?.url && (
+                  <p style={{ fontSize: 11, color: "#8A9089", marginTop: 20 }}>
+                    Op deze offerte zijn onze{" "}
+                    <a href={algemeneVoorwaarden.url} target="_blank" rel="noreferrer" style={{ color: "#1C5D8C" }}>
+                      {(algemeneVoorwaarden.titel || "algemene voorwaarden").toLowerCase()}
+                    </a>{" "}
+                    van toepassing.
+                  </p>
+                )}
               </div>
             );
           })}
 
-          {Object.entries(bijlageToelichtingen).some(([, tekst]) => (tekst || "").trim() !== "") && (
-            <div style={{ marginTop: 8, marginBottom: 24 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: "#B98237", marginBottom: 10 }}>
-                Toelichting per onderdeel
-              </div>
-              {Object.entries(regelsPerKlant)[0]?.[1]?.map((regel) =>
-                bijlageToelichtingen[regel.id] ? (
-                  <div key={regel.id} style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 2 }}>{regel.naam}</div>
-                    <p style={{ fontSize: 12.5, color: "#5B6259", margin: 0, whiteSpace: "pre-wrap" }}>
-                      {bijlageToelichtingen[regel.id]}
-                    </p>
-                  </div>
-                ) : null
-              )}
-            </div>
-          )}
-
-          {roadmap && (
-            <div style={{ marginTop: 8, marginBottom: 24 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 12 }}>{roadmap.titel}</div>
-              <div style={{ display: "grid", gap: 10 }}>
+          {roadmap && roadmap.fases?.length > 0 && (
+            <div style={{ marginTop: 8, marginBottom: 28 }}>
+              {koptekstMetLogo(roadmap.titel)}
+              <div style={{ display: "grid", gap: 12 }}>
                 {roadmap.fases.map((fase) => (
-                  <div key={fase.id} style={{ padding: 12, borderRadius: 8, background: "#FAFAF7", border: "1px solid #E2E4DF" }}>
-                    <div style={{ fontSize: 10.5, fontWeight: 700, color: "#1C5D8C", letterSpacing: ".04em" }}>{fase.label}</div>
-                    <div style={{ fontSize: 13, fontWeight: 700, marginTop: 2 }}>{fase.titel}</div>
-                    <div style={{ fontSize: 12, color: "#5B6259", marginTop: 6, whiteSpace: "pre-line" }}>{fase.puntenTekst}</div>
+                  <div key={fase.id} style={{ padding: 14, borderRadius: 10, border: "1.5px solid #1C5D8C" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#B98237", letterSpacing: ".04em", textTransform: "uppercase" }}>
+                      {fase.label}
+                    </div>
+                    <div style={{ fontSize: 13.5, fontWeight: 700, marginTop: 4, marginBottom: 8 }}>{fase.titel}</div>
+                    {(fase.puntenTekst || "").split("\n").map((p) => p.trim()).filter(Boolean).length > 0 && (
+                      <ul style={{ margin: 0, marginBottom: 8, paddingLeft: 16, fontSize: 12, color: "#3A4038", lineHeight: 1.6 }}>
+                        {(fase.puntenTekst || "").split("\n").map((p) => p.trim()).filter(Boolean).map((punt, i) => (
+                          <li key={i}>{punt}</li>
+                        ))}
+                      </ul>
+                    )}
                     {fase.resultaatTekst && (
-                      <div style={{ fontSize: 11.5, color: "#2E7D4F", marginTop: 6 }}>
-                        <strong>{fase.resultaatLabel}:</strong> {fase.resultaatTekst}
+                      <div style={{ background: "#EAF2F8", borderRadius: 6, padding: "8px 10px", display: "inline-block" }}>
+                        <div style={{ fontSize: 9.5, fontWeight: 700, color: "#1C5D8C", textTransform: "uppercase" }}>{fase.resultaatLabel}</div>
+                        <div style={{ fontSize: 11.5, fontWeight: 600 }}>{fase.resultaatTekst}</div>
                       </div>
                     )}
                   </div>
@@ -341,14 +400,28 @@ export default function TekenPagina({ id }) {
             </div>
           )}
 
-          {algemeneVoorwaarden?.url && (
-            <p style={{ fontSize: 11.5, color: "#8A9089" }}>
-              Op deze offerte zijn onze{" "}
-              <a href={algemeneVoorwaarden.url} target="_blank" rel="noreferrer" style={{ color: "#1C5D8C" }}>
-                {algemeneVoorwaarden.titel || "algemene voorwaarden"}
-              </a>{" "}
-              van toepassing.
-            </p>
+          {(algemeneToelichting.trim() !== "" || Object.values(bijlageToelichtingen).some((t) => (t || "").trim() !== "")) && (
+            <div style={{ marginTop: 8 }}>
+              {koptekstMetLogo("Bijlage — toelichting per onderdeel")}
+              <div style={{ display: "grid", gap: 16 }}>
+                {algemeneToelichting.trim() !== "" && (
+                  <div style={{ paddingBottom: 14, borderBottom: "1px solid #E2E4DF" }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Algemeen</div>
+                    <div style={{ fontSize: 12.5, color: "#3A4038", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{algemeneToelichting}</div>
+                  </div>
+                )}
+                {Object.entries(regelsPerKlant)[0]?.[1]?.map((regel) =>
+                  bijlageToelichtingen[regel.id] ? (
+                    <div key={regel.id} style={{ paddingBottom: 14, borderBottom: "1px solid #E2E4DF" }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{regel.naam}</div>
+                      <p style={{ fontSize: 12.5, color: "#3A4038", margin: 0, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                        {bijlageToelichtingen[regel.id]}
+                      </p>
+                    </div>
+                  ) : null
+                )}
+              </div>
+            </div>
           )}
         </div>
 

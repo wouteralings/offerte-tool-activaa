@@ -31,6 +31,10 @@ import {
   Save,
   Link2,
   ScrollText,
+  Eye,
+  EyeOff,
+  Download,
+  Mail,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -376,16 +380,23 @@ async function offertesLijstOphalen() {
       }
     }
     records.sort((a, b) => new Date(b.gewijzigdOp) - new Date(a.gewijzigdOp));
-    return records.map((r) => ({
-      id: r.id,
-      klantNamen: r.klantNamen || [],
-      klantGroepen: r.klantGroepen || [],
-      status: r.status || OFFERTE_STATUS_STANDAARD,
-      aangemaaktOp: r.aangemaaktOp,
-      aangemaaktDoor: r.aangemaaktDoor,
-      gewijzigdOp: r.gewijzigdOp,
-      gewijzigdDoor: r.gewijzigdDoor,
-    }));
+    return records.map((r) => {
+      const bekekenEvents = (r.logboek || []).filter((e) => e.gebeurtenis === "geopend");
+      const laatsteBekeken = bekekenEvents.length > 0 ? bekekenEvents[bekekenEvents.length - 1] : null;
+      return {
+        id: r.id,
+        klantNamen: r.klantNamen || [],
+        klantGroepen: r.klantGroepen || [],
+        status: r.status || OFFERTE_STATUS_STANDAARD,
+        aangemaaktOp: r.aangemaaktOp,
+        aangemaaktDoor: r.aangemaaktDoor,
+        gewijzigdOp: r.gewijzigdOp,
+        gewijzigdDoor: r.gewijzigdDoor,
+        aantalBekeken: bekekenEvents.length,
+        laatstBekekenOp: laatsteBekeken?.op || null,
+        laatstBekekenIp: laatsteBekeken?.ip || null,
+      };
+    });
   }
   const res = await fetch("/api/offertes");
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -760,6 +771,10 @@ export default function OffertetoolApp() {
   // Na het sluiten van het afdrukvenster vragen of de status op "Verzonden" gezet mag worden.
   const [offerteVraagStatusTonen, setOfferteVraagStatusTonen] = useState(false);
   const [tekenLinkGekopieerd, setTekenLinkGekopieerd] = useState(false);
+  // mailAdressen: per klant-ID het (evt. aangepaste) e-mailadres om de tekenlink naartoe te
+  // mailen — standaard het bekende adres van de klant, hier alleen zichtbaar/wijzigbaar
+  // vlak voordat je 'm gebruikt (niet apart opgeslagen bij de offerte).
+  const [mailAdressen, setMailAdressen] = useState({});
 
   async function laadOffertesLijst() {
     setOffertesLijstBezig(true);
@@ -849,6 +864,7 @@ export default function OffertetoolApp() {
       afzender,
       algemeneVoorwaarden,
       roadmap: roadmapToevoegen ? roadmap : null,
+      namens: { naam: huidigeGebruiker?.naam || "", email: huidigeGebruiker?.email || "" },
     };
   }
 
@@ -1709,15 +1725,19 @@ export default function OffertetoolApp() {
     }
   }
 
+  // Zorgt dat de offerte een ID heeft (slaat 'm zo nodig eerst op) en geeft dat ID terug —
+  // gedeeld door zowel "link kopiëren" als "mailen".
+  async function zorgVoorOfferteId() {
+    if (huidigeOfferteId) return huidigeOfferteId;
+    return await slaOfferteOp();
+  }
+
   // Genereert (en slaat zo nodig eerst op) de publieke tekenlink, en kopieert 'm naar het
   // klembord. De link bevat geen Microsoft-login-vereiste — het offerte-ID zelf functioneert
   // als toegangssleutel, net zoals bij een gedeelde documentlink.
   async function kopieerTekenLink() {
-    let id = huidigeOfferteId;
-    if (!id) {
-      id = await slaOfferteOp();
-      if (!id) return;
-    }
+    const id = await zorgVoorOfferteId();
+    if (!id) return;
     const link = `${window.location.origin}/tekenen/${id}`;
     try {
       await navigator.clipboard.writeText(link);
@@ -1726,6 +1746,22 @@ export default function OffertetoolApp() {
     }
     setTekenLinkGekopieerd(true);
     setTimeout(() => setTekenLinkGekopieerd(false), 3000);
+  }
+
+  // Opent de eigen mail-app (Outlook/webmail) met een kant-en-klare mail naar de gekozen
+  // klant, met de tekenlink erin. Er is bewust geen automatische verzendfunctie gebouwd —
+  // dit geeft ruimte om het e-mailadres en de tekst nog even te controleren voor het versturen.
+  async function mailTekenLink(klant) {
+    const id = await zorgVoorOfferteId();
+    if (!id) return;
+    const link = `${window.location.origin}/tekenen/${id}`;
+    const email = mailAdressen[klant.id] ?? klant.email ?? "";
+    const onderwerp = `Offerte ${afzender.bedrijf}`;
+    const aanhef = klant.contact ? `Beste ${klant.contact},` : "Beste,";
+    const body =
+      `${aanhef}\n\nHierbij ontvangt u onze offerte. U kunt deze inzien en digitaal ondertekenen via onderstaande link:\n${link}\n\nMet vriendelijke groet,\n${huidigeGebruiker?.naam || ""}`;
+    const mailtoUrl = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(onderwerp)}&body=${encodeURIComponent(body)}`;
+    window.location.href = mailtoUrl;
   }
 
   const kanNaarDiensten = gekozenKlanten.length > 0;
@@ -2828,6 +2864,7 @@ export default function OffertetoolApp() {
                       <th style={{ padding: "10px 14px", fontWeight: 700, color: "#5B6259" }}>Klant(en)</th>
                       <th style={{ padding: "10px 14px", fontWeight: 700, color: "#5B6259" }}>Klantgroep</th>
                       <th style={{ padding: "10px 14px", fontWeight: 700, color: "#5B6259" }}>Status</th>
+                      <th style={{ padding: "10px 14px", fontWeight: 700, color: "#5B6259" }}>Bekeken</th>
                       <th style={{ padding: "10px 14px", fontWeight: 700, color: "#5B6259" }}>Opgemaakt door</th>
                       <th style={{ padding: "10px 14px", fontWeight: 700, color: "#5B6259" }}>Laatst gewijzigd</th>
                       <th style={{ padding: "10px 14px" }} />
@@ -2882,6 +2919,22 @@ export default function OffertetoolApp() {
                               ))}
                             </select>
                           </td>
+                          <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
+                            {o.aantalBekeken > 0 ? (
+                              <span title={o.laatstBekekenIp ? `IP: ${o.laatstBekekenIp}` : undefined}>
+                                <Eye size={12} style={{ verticalAlign: "-2px", marginRight: 4, color: "#2E7D4F" }} />
+                                {datumTijd(o.laatstBekekenOp)}
+                                {o.aantalBekeken > 1 && (
+                                  <span style={{ color: "#8A9089" }}> ({o.aantalBekeken}x)</span>
+                                )}
+                              </span>
+                            ) : (
+                              <span style={{ color: "#A5AA9F" }}>
+                                <EyeOff size={12} style={{ verticalAlign: "-2px", marginRight: 4 }} />
+                                Nog niet bekeken
+                              </span>
+                            )}
+                          </td>
                           <td style={{ padding: "10px 14px" }}>{o.aangemaaktDoor || "—"}</td>
                           <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
                             {gewijzigd ? (
@@ -2894,19 +2947,21 @@ export default function OffertetoolApp() {
                             )}
                           </td>
                           <td style={{ padding: "10px 14px", textAlign: "right", whiteSpace: "nowrap" }}>
-                            <button className="ot-btn-ghost" onClick={() => toggleLogboek(o.id)}>
-                              <ScrollText size={13} />
-                              Log
-                            </button>
-                            <button className="ot-btn-ghost" onClick={() => openOfferte(o.id)}>
-                              <FolderOpen size={13} />
-                              Openen
-                            </button>
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                              <button className="ot-btn-ghost" onClick={() => toggleLogboek(o.id)}>
+                                <ScrollText size={13} />
+                                Log
+                              </button>
+                              <button className="ot-btn-ghost" onClick={() => openOfferte(o.id)}>
+                                <FolderOpen size={13} />
+                                Openen
+                              </button>
+                            </div>
                           </td>
                         </tr>
                         {logboekOpenId === o.id && (
                           <tr>
-                            <td colSpan={8} style={{ padding: 0, borderTop: "1px solid #E2E4DF" }}>
+                            <td colSpan={9} style={{ padding: 0, borderTop: "1px solid #E2E4DF" }}>
                               <div style={{ padding: "14px 20px", background: "#FAFAF7" }}>
                                 {logboekBezig && (
                                   <span style={{ fontSize: 12.5, color: "#8A9089" }}>Bezig met laden…</span>
@@ -3941,6 +3996,35 @@ export default function OffertetoolApp() {
                 </div>
               </div>
             )}
+
+            <div style={{ padding: "14px 16px", background: "#FAFAF7", border: "1px solid #E2E4DF", borderRadius: 10, marginTop: 20 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#5B6259", marginBottom: 10 }}>
+                Tekenlink per e-mail aanbieden
+              </div>
+              <div style={{ display: "grid", gap: 10 }}>
+                {gekozenKlanten.map((klant) => (
+                  <div key={klant.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 12.5, minWidth: 140, color: "#3A4038" }}>{klant.naam}</span>
+                    <input
+                      className="ot-input"
+                      type="email"
+                      style={{ flex: 1, minWidth: 200 }}
+                      value={mailAdressen[klant.id] ?? klant.email ?? ""}
+                      onChange={(e) => setMailAdressen((prev) => ({ ...prev, [klant.id]: e.target.value }))}
+                      placeholder="e-mailadres@voorbeeld.nl"
+                    />
+                    <button className="ot-btn-secondary" onClick={() => mailTekenLink(klant)}>
+                      <Mail size={14} />
+                      Mail versturen
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <p style={{ fontSize: 11, color: "#8A9089", marginTop: 8 }}>
+                Opent je eigen mailprogramma met de tekenlink al ingevuld — controleer het adres en de tekst
+                voordat je verstuurt.
+              </p>
+            </div>
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20 }}>
               <button className="ot-btn-secondary" onClick={vorige}>
