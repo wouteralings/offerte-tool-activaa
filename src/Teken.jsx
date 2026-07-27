@@ -82,13 +82,12 @@ export default function TekenPagina({ id }) {
         }
         const data = await res.json();
         setRecord(data);
-        // Vooraf invullen met de gekozen primaire contactpersoon — alleen ondubbelzinnig
+        // Vooraf invullen met de bekende contactpersoon van de klant — alleen ondubbelzinnig
         // te doen als er precies één klant op deze offerte staat.
         const klanten = data?.data?.gekozenKlanten || [];
-        const contacten = data?.data?.primaireContacten || {};
-        if (klanten.length === 1 && contacten[klanten[0].id]) {
-          setNaam(contacten[klanten[0].id].naam || "");
-          setEmail(contacten[klanten[0].id].email || "");
+        if (klanten.length === 1 && klanten[0].contact) {
+          setNaam(klanten[0].contact || "");
+          setEmail(klanten[0].email || "");
         }
       } catch (e) {
         setFout("Er ging iets mis bij het laden. Controleer je internetverbinding.");
@@ -191,7 +190,6 @@ export default function TekenPagina({ id }) {
   const afzender = record?.data?.afzender || null;
   const algemeneVoorwaarden = record?.data?.algemeneVoorwaarden || null;
   const logo = record?.data?.logo || ACTIVAA_LOGO;
-  const primaireContacten = record?.data?.primaireContacten || {};
 
   return (
     <div style={scherm}>
@@ -244,11 +242,8 @@ export default function TekenPagina({ id }) {
                 {gekozenKlanten.length > 1 && (
                   <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 8 }}>{klant.naam}</div>
                 )}
-                {primaireContacten[klant.id]?.naam && (
-                  <div style={{ fontSize: 12, color: "#8A9089", marginBottom: 4 }}>
-                    T.a.v. {primaireContacten[klant.id].naam}
-                    {primaireContacten[klant.id].functie ? ` — ${primaireContacten[klant.id].functie}` : ""}
-                  </div>
+                {klant.contact && (
+                  <div style={{ fontSize: 12, color: "#8A9089", marginBottom: 4 }}>T.a.v. {klant.contact}</div>
                 )}
                 {klantToelichtingen[klant.id] && (
                   <p style={{ fontSize: 13, color: "#5B6259", marginBottom: 10, whiteSpace: "pre-wrap" }}>

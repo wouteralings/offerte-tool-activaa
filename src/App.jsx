@@ -53,11 +53,6 @@ const MOCK_KLANTEN = [
     contact: "M. van Rijn",
     email: "m.vanrijn@vanrijnbouw.nl",
     segment: "Bouw & Infra",
-    primaireContactpersoonId: "con-1041-1",
-    contactpersonen: [
-      { id: "con-1041-1", naam: "M. van Rijn", email: "m.vanrijn@vanrijnbouw.nl", functie: "Directeur" },
-      { id: "con-1041-2", naam: "J. Willemsen", email: "j.willemsen@vanrijnbouw.nl", functie: "Financieel manager" },
-    ],
   },
   {
     id: "acc-2093",
@@ -66,8 +61,6 @@ const MOCK_KLANTEN = [
     contact: "S. Kramer",
     email: "s.kramer@noordzeelog.nl",
     segment: "Transport",
-    primaireContactpersoonId: "con-2093-1",
-    contactpersonen: [{ id: "con-2093-1", naam: "S. Kramer", email: "s.kramer@noordzeelog.nl", functie: "Eigenaar" }],
   },
   {
     id: "acc-3187",
@@ -76,8 +69,6 @@ const MOCK_KLANTEN = [
     contact: "F. Bakker",
     email: "f.bakker@heldergroen.nl",
     segment: "Zorg",
-    primaireContactpersoonId: "con-3187-1",
-    contactpersonen: [{ id: "con-3187-1", naam: "F. Bakker", email: "f.bakker@heldergroen.nl", functie: "Controller" }],
   },
   {
     id: "acc-4402",
@@ -86,8 +77,6 @@ const MOCK_KLANTEN = [
     contact: "T. de Boer",
     email: "t.deboer@molenwerf.studio",
     segment: "Creatief",
-    primaireContactpersoonId: "con-4402-1",
-    contactpersonen: [{ id: "con-4402-1", naam: "T. de Boer", email: "t.deboer@molenwerf.studio", functie: "Eigenaar" }],
   },
   {
     id: "acc-5510",
@@ -96,8 +85,6 @@ const MOCK_KLANTEN = [
     contact: "R. Kastermans",
     email: "r.kastermans@kastermans.nl",
     segment: "Financieel",
-    primaireContactpersoonId: "con-5510-1",
-    contactpersonen: [{ id: "con-5510-1", naam: "R. Kastermans", email: "r.kastermans@kastermans.nl", functie: "Directeur" }],
   },
 ];
 
@@ -855,7 +842,6 @@ export default function OffertetoolApp() {
       klantToelichtingen,
       roadmapToevoegen,
       regelsPerKlant,
-      primaireContacten,
       // Onderstaande velden zijn nodig zodat de publieke tekenpagina (die geen toegang heeft
       // tot instellingen zoals logo/afzender/voorwaarden) toch de complete, echte offerte kan
       // tonen — inclusief branding — in plaats van een kale samenvatting.
@@ -899,7 +885,6 @@ export default function OffertetoolApp() {
       setAlgemeneToelichting(snap.algemeneToelichting || "");
       setBijlageToelichtingen(snap.bijlageToelichtingen || {});
       setKlantToelichtingen(snap.klantToelichtingen || {});
-      setPrimaireContacten(snap.primaireContacten || {});
       setRoadmapToevoegen(!!snap.roadmapToevoegen);
       setHuidigeOfferteId(id);
       setHuidigeOfferteStatus(record.status || OFFERTE_STATUS_STANDAARD);
@@ -960,7 +945,6 @@ export default function OffertetoolApp() {
     setAlgemeneToelichting("");
     setBijlageToelichtingen({});
     setKlantToelichtingen({});
-    setPrimaireContacten({});
     setRoadmapToevoegen(false);
     setHuidigeOfferteId(null);
     setHuidigeOfferteStatus(OFFERTE_STATUS_STANDAARD);
@@ -1044,10 +1028,6 @@ export default function OffertetoolApp() {
   const [algemeneToelichting, setAlgemeneToelichting] = useState("");
   // klantToelichtingen: "klantId" -> klantspecifieke tekst, komt op de offerte van díe klant
   const [klantToelichtingen, setKlantToelichtingen] = useState({});
-  // primaireContacten: per klant-ID de gekozen contactpersoon voor déze offerte — { [klantId]: { id, naam, email } }.
-  // Standaard leeg; wordt bij het kiezen van klanten gevuld met de in Dynamics ingestelde
-  // primaire contactpersoon (indien aanwezig), en kan op de Bijlage-stap handmatig gewijzigd worden.
-  const [primaireContacten, setPrimaireContacten] = useState({});
   const [bijlageGeladen, setBijlageGeladen] = useState(false);
 
   // Bijlage-teksten (algemeen, per dienst, per klant) laden uit persistente opslag.
@@ -1571,17 +1551,6 @@ export default function OffertetoolApp() {
         ? prev.filter((x) => x.id !== k.id)
         : [...prev, k]
     );
-    // Standaard de in Dynamics ingestelde primaire contactpersoon voorselecteren (indien
-    // aanwezig) — kan later op de Bijlage-stap nog gewijzigd worden naar een andere
-    // gekoppelde contactpersoon.
-    if (!primaireContacten[k.id]) {
-      const standaard =
-        (k.contactpersonen || []).find((c) => c.id === k.primaireContactpersoonId) ||
-        (k.contact ? { id: null, naam: k.contact, email: k.email || "" } : null);
-      if (standaard) {
-        setPrimaireContacten((prev) => ({ ...prev, [k.id]: standaard }));
-      }
-    }
   }
 
   function startLogin() {
@@ -1602,7 +1571,6 @@ export default function OffertetoolApp() {
     setKlantVarianten({});
     setAangepastePrijzen({});
     setUitgeschakeldVoorKlant({});
-    setPrimaireContacten({});
     setHuidigeOfferteId(null);
     setHuidigeOfferteStatus(OFFERTE_STATUS_STANDAARD);
     setOfferteOpslaanStatus("idle");
@@ -3566,35 +3534,6 @@ export default function OffertetoolApp() {
                     {gekozenKlanten.map((klant) => (
                       <div key={klant.id} className="ot-card" style={{ padding: 16 }}>
                         <label className="ot-label">{klant.naam}</label>
-
-                        {(klant.contactpersonen || []).length > 0 ? (
-                          <div style={{ marginBottom: 10 }}>
-                            <label style={{ fontSize: 11.5, color: "#8A9089", display: "block", marginBottom: 3 }}>
-                              Primaire contactpersoon (t.a.v. op de offerte, en vooraf ingevuld op het tekenscherm)
-                            </label>
-                            <select
-                              className="ot-input"
-                              value={primaireContacten[klant.id]?.id || ""}
-                              onChange={(e) => {
-                                const gekozen = klant.contactpersonen.find((c) => c.id === e.target.value);
-                                setPrimaireContacten((prev) => ({ ...prev, [klant.id]: gekozen || null }));
-                              }}
-                            >
-                              <option value="">— Geen contactpersoon geselecteerd —</option>
-                              {klant.contactpersonen.map((c) => (
-                                <option key={c.id} value={c.id}>
-                                  {c.naam}
-                                  {c.functie ? ` — ${c.functie}` : ""}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        ) : (
-                          <p style={{ fontSize: 11.5, color: "#8A9089", marginBottom: 10 }}>
-                            Geen gekoppelde contactpersonen gevonden in Dynamics voor deze klant.
-                          </p>
-                        )}
-
                         <textarea
                           className="ot-input"
                           rows={3}
@@ -3727,14 +3666,11 @@ export default function OffertetoolApp() {
                     <div>
                       <div className="ot-label">Aan</div>
                       <div style={{ fontWeight: 700, fontSize: 14.5 }}>{klant.naam}</div>
-                      <div style={{ fontSize: 13, color: "#5B6259" }}>
-                        {primaireContacten[klant.id]?.naam || klant.contact}
-                        {primaireContacten[klant.id]?.functie ? ` — ${primaireContacten[klant.id].functie}` : ""}
-                      </div>
+                      <div style={{ fontSize: 13, color: "#5B6259" }}>{klant.contact}</div>
                       {klantAdresRegels(klant).map((regel, i) => (
                         <div key={i} style={{ fontSize: 13, color: "#5B6259" }}>{regel}</div>
                       ))}
-                      <div style={{ fontSize: 13, color: "#5B6259" }}>{primaireContacten[klant.id]?.email || klant.email}</div>
+                      <div style={{ fontSize: 13, color: "#5B6259" }}>{klant.email}</div>
                     </div>
                     <div>
                       <div className="ot-label">Namens</div>

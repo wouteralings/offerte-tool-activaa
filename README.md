@@ -78,13 +78,6 @@ entiteit `Account` (`name`, `address1_city`, `emailaddress1`, `primarycontactid`
 jullie omgeving hiervan af (aangepaste velden), pas dan de `$select`/`$expand` in dat
 bestand aan.
 
-**Contactpersonen per klant** (voor het kiezen van een primaire contactpersoon per offerte)
-worden opgehaald via `contact_customer_accounts` — de standaard Dataverse-relatie tussen een
-account en de contactpersonen die dát account als bedrijf hebben (`contact.parentcustomerid`).
-Als dit in jullie omgeving anders is ingericht, of als de Application User (stap 2) nog geen
-leesrechten heeft op de entiteit `Contact`, komt de lijst met contactpersonen leeg terug —
-werkt verder niet storend, maar het keuzeveld op de Bijlage-stap blijft dan leeg.
-
 ## Let op — overige onderdelen zijn nog niet live gekoppeld
 
 - **Microsoft-login**: werkt al écht via de ingebouwde authenticatie van Azure Static Web
