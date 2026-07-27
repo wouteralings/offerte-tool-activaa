@@ -4298,6 +4298,10 @@ export default function OffertetoolApp() {
                     <span style={{ color: "#B14A2E" }}>Opslaan mislukt (offerte blijft wel bruikbaar)</span>
                   )}
                 </span>
+                <button className="ot-btn-secondary" onClick={slaOfferteOp} disabled={offerteOpslaanStatus === "bezig"}>
+                  <Save size={15} />
+                  Opslaan
+                </button>
                 <button className="ot-btn-secondary" onClick={kopieerTekenLink}>
                   {tekenLinkGekopieerd ? <Check size={15} /> : <Link2 size={15} />}
                   {tekenLinkGekopieerd ? "Link gekopieerd" : "Tekenlink kopiëren"}
