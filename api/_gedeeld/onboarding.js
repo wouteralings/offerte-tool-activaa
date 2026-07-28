@@ -287,7 +287,18 @@ function berekenFaseHoogte(fase, fonts, breedteBinnenKaart) {
   return hoogte;
 }
 
-function tekenFaseKaart(page, fase, fonts, x, yBoven, breedte, hoogte) {
+// Hoogte van het lichtblauwe "resultaat/doel"-vakje onderin een faskaart, puur
+// op basis van de eigen tekst van die kaart. Losstaand van berekenFaseHoogte
+// zodat de roadmap-rij dit ook kan gebruiken om de kaarten in een rij op één
+// gedeelde (gelijke) vakhoogte te laten uitkomen, i.p.v. dat elk vakje zijn
+// eigen, mogelijk afwijkende hoogte krijgt.
+function berekenResultaatVakHoogte(fase, bold, breedteBinnen) {
+  if (!fase.resultaatTekst) return 0;
+  const resultaatRegels = verdeelInRegels(fase.resultaatTekst, bold, 10.5, breedteBinnen - 20);
+  return 10 + resultaatRegels.length * 13 + 8;
+}
+
+function tekenFaseKaart(page, fase, fonts, x, yBoven, breedte, hoogte, gedeeldeVakHoogte) {
   const { regular, bold } = fonts;
   const PADDING = 12;
   page.drawRectangle({ x, y: yBoven - hoogte, width: breedte, height: hoogte, borderColor: KLEUR.blauw, borderWidth: 1.3 });
@@ -323,7 +334,11 @@ function tekenFaseKaart(page, fase, fonts, x, yBoven, breedte, hoogte) {
 
   if (fase.resultaatTekst) {
     const resultaatRegels = verdeelInRegels(fase.resultaatTekst, bold, 10.5, breedteBinnen - 20);
-    const vakHoogte = 10 + resultaatRegels.length * 13 + 8;
+    const eigenVakHoogte = 10 + resultaatRegels.length * 13 + 8;
+    // Als de aanroeper een gedeelde hoogte meegeeft (zodat alle vakjes in een
+    // rij even groot zijn, ongeacht welke kaart de langste resultaattekst
+    // heeft), gebruik die — anders gewoon de eigen, op de tekst afgestemde hoogte.
+    const vakHoogte = gedeeldeVakHoogte ? Math.max(gedeeldeVakHoogte, eigenVakHoogte) : eigenVakHoogte;
     page.drawRectangle({ x: x + PADDING, y: yInhoud - vakHoogte, width: breedteBinnen - PADDING * 2 + 20, height: vakHoogte, color: KLEUR.blauwLicht });
     page.drawText(veiligeTekst((fase.resultaatLabel || "Resultaat").toUpperCase(), bold), { x: x + PADDING + 10, y: yInhoud - 12, size: 8.5, font: bold, color: KLEUR.blauw });
     let yResultaat = yInhoud - 25;
@@ -476,11 +491,21 @@ async function genereerOffertePdf(record) {
         s.tekstOpY(prijsTekst, xPrijs, rijY, { size: 11.5, kleur: KLEUR.primair, uitlijning: "rechts", rechterX: xPrijs });
         const subtotaalTekst = r.opAanvraag || r.opNacalculatie ? "—" : euro(r.subtotaal);
         s.tekstOpY(subtotaalTekst, xSubtotaal, rijY, { size: 11.5, font: bold, kleur: KLEUR.primair, uitlijning: "rechts", rechterX: xSubtotaal });
-        s.setY(rijY - rijHoogte);
-        s.lijn({ kleur: KLEUR.rand, ruimteNa: 0 });
+        // De grijze lijn kwam voorheen exact op de basislijn van de VOLGENDE
+        // rij te staan (alle ruimte zat vóór de lijn, niets erna) — daardoor
+        // leek de lijn aan de tekst eronder "vast te plakken" i.p.v. een
+        // nette scheiding te zijn, en voelde het bij omgeslagen (meerregelige)
+        // namen extra ongelijkmatig. Nu staat de lijn verder los: een klein
+        // stukje ruimte na de laatste naamregel, én een stukje ruimte na de
+        // lijn zelf vóór de volgende rij begint — de totale rijhoogte (en dus
+        // de pagina-indeling) blijft precies gelijk, alleen de verdeling
+        // ervan rond de lijn verandert.
+        const laatsteBaseline = rijY - (naamRegels.length - 1) * 15;
+        s.setY(laatsteBaseline - 8);
+        s.lijn({ kleur: KLEUR.rand, ruimteNa: rijHoogte - (naamRegels.length - 1) * 15 - 8 });
       });
     });
-    s.witruimte(8);
+    s.witruimte(20);
 
     // Totalenblok, rechts uitgelijnd.
     s.nieuwePaginaIndienNodig(70);
@@ -534,7 +559,7 @@ async function genereerOffertePdf(record) {
       ruimteNa: 6,
     });
     const logoHoogte2 = tekenLogoRechtsboven(s.huidigePagina(), logo, kopY + 4);
-    if (logoHoogte2) s.setY(Math.min(s.huidigeY(), kopY + 4 - logoHoogte2 - 14));
+    if (logoHoogte2) s.setY(Math.min(s.huidigeY(), kopY + 4 - logoHoogte2 - 6));
 
     const kolomGap = 20;
     const kolomBreedte = (KOLOM_BREEDTE - kolomGap) / 2;
@@ -542,12 +567,21 @@ async function genereerOffertePdf(record) {
     for (let i = 0; i < fases.length; i += 2) {
       const rijFases = [fases[i], fases[i + 1]].filter(Boolean);
       const hoogtes = rijFases.map((f) => berekenFaseHoogte(f, fonts, kolomBreedte - 28));
-      const rijHoogte = Math.max(...hoogtes) + 16; // + ruimte voor het rondje/lijntje bovenaan
+      // De "resultaat/doel"-vakjes van de kaarten in deze rij op elkaar afstemmen
+      // — anders krijgt elke kaart een eigen, op zijn eigen tekst afgestemde
+      // vakhoogte, wat er per rij scheef/ongelijk uitziet (bijv. een kort
+      // "Resultaat"-zinnetje naast een langer, 2 regels tellend zinnetje).
+      // Kaarten met een kortere eigen vakhoogte krijgen er hier evenveel bij
+      // opgeteld als het vakje groeit, zodat de tekst niet buiten de kaart valt.
+      const eigenVakHoogtes = rijFases.map((f) => berekenResultaatVakHoogte(f, bold, kolomBreedte - 24));
+      const gedeeldeVakHoogte = Math.max(0, ...eigenVakHoogtes);
+      const kaartHoogte = Math.max(...hoogtes.map((h, idx) => h + Math.max(0, gedeeldeVakHoogte - eigenVakHoogtes[idx])));
+      const rijHoogte = kaartHoogte + 14; // + ruimte voor het rondje/lijntje bovenaan
       s.nieuwePaginaIndienNodig(rijHoogte + 4);
       const rijBovenY = s.huidigeY() - 15;
       rijFases.forEach((fase, kol) => {
         const x = MARGE + kol * (kolomBreedte + kolomGap);
-        tekenFaseKaart(s.huidigePagina(), fase, fonts, x, rijBovenY, kolomBreedte, hoogtes[kol]);
+        tekenFaseKaart(s.huidigePagina(), fase, fonts, x, rijBovenY, kolomBreedte, kaartHoogte, gedeeldeVakHoogte);
       });
       s.setY(rijBovenY - rijHoogte + 15);
     }
