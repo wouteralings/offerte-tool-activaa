@@ -823,7 +823,9 @@ export default function OffertetoolApp() {
   const [logboekRecord, setLogboekRecord] = useState(null);
   const [logboekBezig, setLogboekBezig] = useState(false);
   const [offertesPagina, setOffertesPagina] = useState(1);
-  const OFFERTES_PER_PAGINA = 20;
+  // Aantal offertes per pagina — instelbaar via de keuze onderaan het overzicht
+  // (25/50/100/Alle); "alle" laat de paginering feitelijk vervallen.
+  const [offertesPaginaGrootte, setOffertesPaginaGrootte] = useState(25);
   const [offertesSelectie, setOffertesSelectie] = useState(() => new Set());
   const [offertesVerwijderenBezig, setOffertesVerwijderenBezig] = useState(false);
   const [offertesBevestigenTonen, setOffertesBevestigenTonen] = useState(false);
@@ -1093,17 +1095,21 @@ export default function OffertetoolApp() {
     });
   }, [offertesLijst, offertesZoekterm, offertesFilterKlantgroep, offertesFilterGebruiker, offertesFilterStatus]);
 
-  // Bij elke wijziging in zoekterm/filters (of een nieuw geladen lijst) weer bij pagina 1 beginnen.
+  // Bij elke wijziging in zoekterm/filters/paginagrootte (of een nieuw geladen lijst) weer bij pagina 1 beginnen.
   useEffect(() => {
     setOffertesPagina(1);
-  }, [offertesZoekterm, offertesFilterKlantgroep, offertesFilterGebruiker, offertesFilterStatus, offertesLijst]);
+  }, [offertesZoekterm, offertesFilterKlantgroep, offertesFilterGebruiker, offertesFilterStatus, offertesLijst, offertesPaginaGrootte]);
 
-  const offertesTotaalPaginas = Math.max(1, Math.ceil(gefilterdeOffertes.length / OFFERTES_PER_PAGINA));
+  const offertesTotaalPaginas =
+    offertesPaginaGrootte === "alle" ? 1 : Math.max(1, Math.ceil(gefilterdeOffertes.length / offertesPaginaGrootte));
   const offertesPaginaVeilig = Math.min(offertesPagina, offertesTotaalPaginas);
-  const gepagineerdeOffertes = gefilterdeOffertes.slice(
-    (offertesPaginaVeilig - 1) * OFFERTES_PER_PAGINA,
-    offertesPaginaVeilig * OFFERTES_PER_PAGINA
-  );
+  const gepagineerdeOffertes =
+    offertesPaginaGrootte === "alle"
+      ? gefilterdeOffertes
+      : gefilterdeOffertes.slice(
+          (offertesPaginaVeilig - 1) * offertesPaginaGrootte,
+          offertesPaginaVeilig * offertesPaginaGrootte
+        );
 
   // geselecteerd: { [dienstId]: { aantal } }
   const [geselecteerd, setGeselecteerd] = useState({});
@@ -2122,82 +2128,6 @@ export default function OffertetoolApp() {
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button
-                onClick={openCatalogus}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  border: "1px solid #C8CDC5",
-                  background: stap === "catalogus" ? "#1C5D8C" : "#fff",
-                  color: stap === "catalogus" ? "#fff" : "#5B6259",
-                  padding: "7px 12px",
-                  borderRadius: 20,
-                  fontSize: 12.5,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                <Layers size={14} />
-                Diensten beheren
-              </button>
-              <button
-                onClick={openTeksten}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  border: "1px solid #C8CDC5",
-                  background: stap === "teksten" ? "#1C5D8C" : "#fff",
-                  color: stap === "teksten" ? "#fff" : "#5B6259",
-                  padding: "7px 12px",
-                  borderRadius: 20,
-                  fontSize: 12.5,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                <BookOpen size={14} />
-                Teksten beheren
-              </button>
-              <button
-                onClick={openVoorwaarden}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  border: "1px solid #C8CDC5",
-                  background: stap === "voorwaarden" ? "#1C5D8C" : "#fff",
-                  color: stap === "voorwaarden" ? "#fff" : "#5B6259",
-                  padding: "7px 12px",
-                  borderRadius: 20,
-                  fontSize: 12.5,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                <FileText size={14} />
-                Voorwaarden beheren
-              </button>
-              <button
-                onClick={openRoadmap}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  border: "1px solid #C8CDC5",
-                  background: stap === "roadmap" ? "#1C5D8C" : "#fff",
-                  color: stap === "roadmap" ? "#fff" : "#5B6259",
-                  padding: "7px 12px",
-                  borderRadius: 20,
-                  fontSize: 12.5,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                <Milestone size={14} />
-                Roadmap beheren
-              </button>
-              <button
                 onClick={openOffertesOverzicht}
                 style={{
                   display: "flex",
@@ -2282,9 +2212,37 @@ export default function OffertetoolApp() {
         {/* -------------------- INSTELLINGEN / AFZENDER -------------------- */}
         {stap === "instellingen" && (
           <StapWrapper
-            titel="Wie schrijven we aan namens?"
-            toelichting="Deze gegevens komen op elke offerte te staan. Standaard ingevuld vanuit Activaa CRM - profiel — je kunt ze per offerte aanpassen."
+            titel="Instellingen"
+            toelichting="Alle beheerschermen van de offertetool zijn hier verzameld — zo kunnen we dit later eenvoudig per functie/rol afschermen."
           >
+            <div className="ot-card" style={{ padding: 20, marginBottom: 20 }}>
+              <label className="ot-label" style={{ marginBottom: 10, display: "block" }}>Overig beheer</label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button className="ot-btn-secondary" onClick={openCatalogus}>
+                  <Layers size={15} />
+                  Diensten beheren
+                </button>
+                <button className="ot-btn-secondary" onClick={openTeksten}>
+                  <BookOpen size={15} />
+                  Teksten beheren
+                </button>
+                <button className="ot-btn-secondary" onClick={openVoorwaarden}>
+                  <FileText size={15} />
+                  Voorwaarden beheren
+                </button>
+                <button className="ot-btn-secondary" onClick={openRoadmap}>
+                  <Milestone size={15} />
+                  Roadmap beheren
+                </button>
+              </div>
+            </div>
+
+            <label className="ot-label" style={{ marginBottom: 2, display: "block", fontSize: 15, fontWeight: 700 }}>
+              Wie schrijven we aan namens?
+            </label>
+            <p style={{ fontSize: 13.5, color: "#5B6259", marginTop: 4, marginBottom: 16 }}>
+              Deze gegevens komen op elke offerte te staan. Standaard ingevuld vanuit Activaa CRM - profiel — je kunt ze per offerte aanpassen.
+            </p>
             <div className="ot-card" style={{ padding: 24, display: "grid", gap: 16 }}>
               <div>
                 <label className="ot-label">Logo</label>
@@ -3278,46 +3236,69 @@ export default function OffertetoolApp() {
               </div>
             )}
 
-            {gefilterdeOffertes.length > 0 && offertesTotaalPaginas > 1 && (
-              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6, marginTop: 16, flexWrap: "wrap" }}>
-                <button
-                  className="ot-btn-ghost"
-                  disabled={offertesPaginaVeilig === 1}
-                  onClick={() => setOffertesPagina((p) => Math.max(1, p - 1))}
-                  style={{ opacity: offertesPaginaVeilig === 1 ? 0.4 : 1 }}
-                >
-                  <ChevronLeft size={14} />
-                </button>
-                {Array.from({ length: offertesTotaalPaginas }, (_, i) => i + 1).map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setOffertesPagina(p)}
-                    style={{
-                      minWidth: 30,
-                      height: 30,
-                      border: "1px solid #C8CDC5",
-                      background: p === offertesPaginaVeilig ? "#1C5D8C" : "#fff",
-                      color: p === offertesPaginaVeilig ? "#fff" : "#5B6259",
-                      borderRadius: 8,
-                      fontSize: 12.5,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {p}
-                  </button>
-                ))}
-                <button
-                  className="ot-btn-ghost"
-                  disabled={offertesPaginaVeilig === offertesTotaalPaginas}
-                  onClick={() => setOffertesPagina((p) => Math.min(offertesTotaalPaginas, p + 1))}
-                  style={{ opacity: offertesPaginaVeilig === offertesTotaalPaginas ? 0.4 : 1 }}
-                >
-                  <ChevronRight size={14} />
-                </button>
-                <span style={{ fontSize: 12, color: "#8A9089", marginLeft: 8 }}>
-                  {gefilterdeOffertes.length} offerte{gefilterdeOffertes.length === 1 ? "" : "s"} · pagina {offertesPaginaVeilig} van {offertesTotaalPaginas}
-                </span>
+            {gefilterdeOffertes.length > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 16, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  {offertesTotaalPaginas > 1 && (
+                    <>
+                      <button
+                        className="ot-btn-ghost"
+                        disabled={offertesPaginaVeilig === 1}
+                        onClick={() => setOffertesPagina((p) => Math.max(1, p - 1))}
+                        style={{ opacity: offertesPaginaVeilig === 1 ? 0.4 : 1 }}
+                      >
+                        <ChevronLeft size={14} />
+                      </button>
+                      {Array.from({ length: offertesTotaalPaginas }, (_, i) => i + 1).map((p) => (
+                        <button
+                          key={p}
+                          onClick={() => setOffertesPagina(p)}
+                          style={{
+                            minWidth: 30,
+                            height: 30,
+                            border: "1px solid #C8CDC5",
+                            background: p === offertesPaginaVeilig ? "#1C5D8C" : "#fff",
+                            color: p === offertesPaginaVeilig ? "#fff" : "#5B6259",
+                            borderRadius: 8,
+                            fontSize: 12.5,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {p}
+                        </button>
+                      ))}
+                      <button
+                        className="ot-btn-ghost"
+                        disabled={offertesPaginaVeilig === offertesTotaalPaginas}
+                        onClick={() => setOffertesPagina((p) => Math.min(offertesTotaalPaginas, p + 1))}
+                        style={{ opacity: offertesPaginaVeilig === offertesTotaalPaginas ? 0.4 : 1 }}
+                      >
+                        <ChevronRight size={14} />
+                      </button>
+                    </>
+                  )}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12, color: "#8A9089" }}>
+                    {gefilterdeOffertes.length} offerte{gefilterdeOffertes.length === 1 ? "" : "s"}
+                    {offertesTotaalPaginas > 1 ? ` · pagina ${offertesPaginaVeilig} van ${offertesTotaalPaginas}` : ""}
+                  </span>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#8A9089" }}>
+                    Per pagina
+                    <select
+                      className="ot-input"
+                      style={{ width: "auto", padding: "5px 8px", fontSize: 12.5 }}
+                      value={offertesPaginaGrootte}
+                      onChange={(e) => setOffertesPaginaGrootte(e.target.value === "alle" ? "alle" : Number(e.target.value))}
+                    >
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                      <option value="alle">Alle</option>
+                    </select>
+                  </label>
+                </div>
               </div>
             )}
           </StapWrapper>
