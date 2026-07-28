@@ -794,9 +794,11 @@ export default function OffertetoolApp() {
   // Status van de offerte die nu open staat (alleen relevant tijdens het bewerken/bekijken
   // van één offerte — het overzicht zelf houdt per rij zijn eigen status bij).
   const [huidigeOfferteStatus, setHuidigeOfferteStatus] = useState(OFFERTE_STATUS_STANDAARD);
-  // Na het sluiten van het afdrukvenster vragen of de status op "Verzonden" gezet mag worden.
+  // Na het openen van de PDF vragen of de status op "Verzonden" gezet mag worden.
   const [offerteVraagStatusTonen, setOfferteVraagStatusTonen] = useState(false);
   const [tekenLinkGekopieerd, setTekenLinkGekopieerd] = useState(false);
+  // Bezig met het ophalen van de PDF (dezelfde server-gegenereerde PDF als op de tekenlink).
+  const [pdfBezig, setPdfBezig] = useState(false);
   // mailAdressen: per klant-ID het (evt. aangepaste) e-mailadres om de tekenlink naartoe te
   // mailen — standaard het bekende adres van de klant, hier alleen zichtbaar/wijzigbaar
   // vlak voordat je 'm gebruikt (niet apart opgeslagen bij de offerte).
@@ -1759,24 +1761,42 @@ export default function OffertetoolApp() {
     setStap("bijlage");
   }
 
+  // Genereert dezelfde server-PDF als de klant via de tekenlink krijgt (zelfde
+  // /api/teken/{id}?formaat=pdf-endpoint, zelfde offertes-opslag) en opent 'm in een
+  // nieuw tabblad — zo blijven "wat de klant ziet" en "wat wij afdrukken/opslaan"
+  // altijd hetzelfde bestand, in plaats van twee losse opmaken die uit elkaar kunnen
+  // gaan lopen. De eigen PDF-weergave van de browser heeft zelf knoppen om af te
+  // drukken of op te slaan, dus dat blijft gewoon mogelijk.
   async function afdrukken() {
-    // Offerte automatisch opslaan/bijwerken op het moment van afdrukken/PDF maken.
-    // Print blijft ook doorgaan als het opslaan onverhoopt mislukt (bijv. opslag
-    // nog niet geconfigureerd) — dat mag het maken van de offerte niet blokkeren.
-    await slaOfferteOp();
+    // Offerte automatisch opslaan/bijwerken op het moment van afdrukken/PDF maken —
+    // de server-PDF wordt namelijk uit de opgeslagen offerte opgebouwd.
+    const id = await slaOfferteOp();
+    if (!id) {
+      window.alert("Opslaan van de offerte is niet gelukt, dus er kan geen PDF worden gemaakt. Probeer het nogmaals.");
+      return;
+    }
 
-    // Zodra het afdrukvenster weer sluit (gebruiker heeft afgedrukt of geannuleerd),
-    // vragen of de status naar "Verzonden" mag — maar alleen als dat nog niet de
-    // status is (voorkomt onnodig vragen bij elke herafdruk van een reeds verzonden/
-    // besproken/geaccepteerde offerte).
-    const vraagStatus = () => {
-      window.removeEventListener("afterprint", vraagStatus);
-      if (huidigeOfferteStatus !== "verzonden") {
-        setOfferteVraagStatusTonen(true);
-      }
-    };
-    window.addEventListener("afterprint", vraagStatus, { once: true });
-    window.print();
+    setPdfBezig(true);
+    try {
+      const res = await fetch(`/api/teken/${encodeURIComponent(id)}?formaat=pdf`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      // Bewust geen revokeObjectURL meteen: het nieuwe tabblad moet de blob nog kunnen laden.
+      window.open(url, "_blank");
+    } catch (e) {
+      window.alert("PDF maken is niet gelukt. Probeer het nogmaals.");
+      return;
+    } finally {
+      setPdfBezig(false);
+    }
+
+    // Vragen of de status naar "Verzonden" mag — maar alleen als dat nog niet de status
+    // is (voorkomt onnodig vragen bij elke herafdruk van een reeds verzonden/besproken/
+    // geaccepteerde offerte).
+    if (huidigeOfferteStatus !== "verzonden") {
+      setOfferteVraagStatusTonen(true);
+    }
   }
 
   async function zetOfferteOpVerzonden() {
@@ -1936,6 +1956,7 @@ export default function OffertetoolApp() {
         @media (max-width: 560px) {
           .ot-tweekolommen { grid-template-columns: 1fr; gap:16px; }
         }
+        @keyframes spin { from{transform:rotate(0)} to{transform:rotate(360deg)} }
         @page {
           size: A4;
           margin: 12mm;
@@ -4352,9 +4373,13 @@ export default function OffertetoolApp() {
                   {tekenLinkGekopieerd ? <Check size={15} /> : <Link2 size={15} />}
                   {tekenLinkGekopieerd ? "Link gekopieerd" : "Tekenlink kopiëren"}
                 </button>
-                <button className="ot-btn-primary" onClick={afdrukken}>
-                  <Printer size={15} />
-                  {gekozenKlanten.length > 1 ? "Alles afdrukken / opslaan als PDF" : "Afdrukken / opslaan als PDF"}
+                <button className="ot-btn-primary" onClick={afdrukken} disabled={pdfBezig}>
+                  {pdfBezig ? <Loader2 size={15} className="ot-spin" style={{ animation: "spin 1s linear infinite" }} /> : <Printer size={15} />}
+                  {pdfBezig
+                    ? "PDF maken…"
+                    : gekozenKlanten.length > 1
+                    ? "Alles afdrukken / opslaan als PDF"
+                    : "Afdrukken / opslaan als PDF"}
                 </button>
               </div>
             </div>
