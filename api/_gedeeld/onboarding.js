@@ -718,6 +718,9 @@ async function genereerOpdrachtbevestigingPdf(record) {
   const roadmap = data.roadmap;
   const paragrafen = data.paragrafen || { verplicht: [], optioneel: [] };
   const opdrachttypeNaam = data.opdrachttypeNaam || record.opdrachttypeNaam || "";
+  // Eigen inleidende tekst, los van afzender.inleiding (die is voor de offerte) — zie
+  // opdrachtbevestigingInleiding in src/App.jsx.
+  const inleiding = data.inleiding || "";
   const rechterRand = MARGE + KOLOM_BREEDTE;
 
   const logo = await embedLogo(doc, data.logo);
@@ -784,9 +787,9 @@ async function genereerOpdrachtbevestigingPdf(record) {
     s.setY(Math.min(yLinks, yRechts) - 5);
     s.lijn({ ruimteNa: 20 });
 
-    // Inleiding (zelfde afzender-inleiding als bij offerte).
-    if ((afzender.inleiding || "").trim()) {
-      s.paragraaf(afzender.inleiding, { size: 10.5, kleur: KLEUR.primair, ruimteNa: 11 });
+    // Inleiding — eigen tekst, los van de offerte-inleiding (zie toelichting hierboven).
+    if (inleiding.trim()) {
+      s.paragraaf(inleiding, { size: 10.5, kleur: KLEUR.primair, ruimteNa: 11 });
     }
 
     // "Speciaal voor {klant}"-vak — zelfde opzet als bij de offerte.

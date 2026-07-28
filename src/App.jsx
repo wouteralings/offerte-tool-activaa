@@ -892,6 +892,39 @@ export default function OffertetoolApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [echteGebruiker, afzenderGeladen]);
 
+  // Inleidende tekst op de opdrachtbevestiging — bewust LOS van afzender.inleiding (de
+  // offerte-inleiding hierboven). Werd eerder 1-op-1 hergebruikt, maar de teksten moeten
+  // per document kunnen verschillen. Te bewerken bij de stap "Bijlage" (samen met de
+  // offerte-inleiding), net als de andere gedeelde toelichtingsvelden daar.
+  const OPDRACHTBEVESTIGING_INLEIDING_DEFAULT =
+    "Hartelijk dank voor de opdracht. Hieronder vindt u onze opdrachtbevestiging, samengesteld op basis van de gemaakte afspraken.";
+  const [opdrachtbevestigingInleiding, setOpdrachtbevestigingInleiding] = useState(OPDRACHTBEVESTIGING_INLEIDING_DEFAULT);
+  const [opdrachtbevestigingInleidingGeladen, setOpdrachtbevestigingInleidingGeladen] = useState(false);
+
+  useEffect(() => {
+    let actief = true;
+    (async () => {
+      try {
+        const waarde = await opslagGet("inleiding-opdrachtbevestiging");
+        if (actief && waarde) {
+          setOpdrachtbevestigingInleiding(waarde);
+        }
+      } catch (e) {
+        // nog niets opgeslagen, standaardtekst blijft staan
+      } finally {
+        if (actief) setOpdrachtbevestigingInleidingGeladen(true);
+      }
+    })();
+    return () => {
+      actief = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!opdrachtbevestigingInleidingGeladen) return;
+    opslagSetDebounced("inleiding-opdrachtbevestiging", opdrachtbevestigingInleiding);
+  }, [opdrachtbevestigingInleiding, opdrachtbevestigingInleidingGeladen]);
+
   const [logo, setLogo] = useState(null); // base64/SVG data-URL van het logo, of null zolang het nog laadt
   const [logoGeladen, setLogoGeladen] = useState(false);
 
@@ -1215,6 +1248,9 @@ export default function OffertetoolApp() {
       opdrachttypeNaam: opdrachttypes.find((t) => t.id === gekozenOpdrachttypeId)?.naam || "",
       paragrafen: opdrachtbevestigingParagrafen,
       vanuitOfferteId: opdrachtbevestigingVanuitOfferteId,
+      // Eigen inleidende tekst, los van afzender.inleiding (offerte) — zie toelichting bij
+      // opdrachtbevestigingInleiding hierboven.
+      inleiding: opdrachtbevestigingInleiding,
     };
   }
 
@@ -1262,6 +1298,7 @@ export default function OffertetoolApp() {
       setBijlageToelichtingen(snap.bijlageToelichtingen || {});
       setKlantToelichtingen(snap.klantToelichtingen || {});
       setRoadmapToevoegen(!!snap.roadmapToevoegen);
+      setOpdrachtbevestigingInleiding(snap.inleiding || OPDRACHTBEVESTIGING_INLEIDING_DEFAULT);
       setHuidigeOpdrachtbevestigingId(id);
       setHuidigeOpdrachtbevestigingStatus(record.status || OPDRACHTBEVESTIGING_STATUS_STANDAARD);
       setOpdrachtbevestigingMaker({ naam: record.aangemaaktDoor || "", email: record.aangemaaktDoorEmail || "" });
@@ -3399,10 +3436,6 @@ export default function OffertetoolApp() {
                 <div style={{ color: "#5B6259", marginTop: 2 }}>
                   Dit wordt automatisch bepaald aan de hand van wie is ingelogd — elke collega ziet hier zichzelf staan.
                 </div>
-              </div>
-              <div>
-                <label className="ot-label">Inleidende tekst op de offerte</label>
-                <textarea className="ot-input" rows={3} value={afzender.inleiding} onChange={(e) => setAfzender({ ...afzender, inleiding: e.target.value })} />
               </div>
             </div>
 
@@ -5613,8 +5646,32 @@ export default function OffertetoolApp() {
         {stap === "bijlage" && (
           <StapWrapper
             titel="Toelichting per onderdeel"
-            toelichting="Schrijf optioneel een algemene toelichting, iets klantspecifieks en/of een toelichting per dienst. Alles wordt bewaard en samengevoegd in één gezamenlijke bijlage na de offertes — de klantspecifieke tekst verschijnt op de offerte van díe klant zelf."
+            toelichting="Pas hier de inleidende tekst aan (apart voor offerte en opdrachtbevestiging) en schrijf optioneel een algemene toelichting, iets klantspecifieks en/of een toelichting per dienst. Alles wordt bewaard en samengevoegd in één gezamenlijke bijlage na de offertes — de klantspecifieke tekst verschijnt op de offerte van díe klant zelf."
           >
+            <div className="ot-cat-koptekst" style={{ marginTop: 0 }}>
+              <span>Inleidende tekst</span>
+            </div>
+            <div style={{ display: "grid", gap: 14, marginBottom: 20 }}>
+              <div className="ot-card" style={{ padding: 16 }}>
+                <label className="ot-label">Offerte</label>
+                <textarea
+                  className="ot-input"
+                  rows={3}
+                  value={afzender.inleiding}
+                  onChange={(e) => setAfzender({ ...afzender, inleiding: e.target.value })}
+                />
+              </div>
+              <div className="ot-card" style={{ padding: 16 }}>
+                <label className="ot-label">Opdrachtbevestiging</label>
+                <textarea
+                  className="ot-input"
+                  rows={3}
+                  value={opdrachtbevestigingInleiding}
+                  onChange={(e) => setOpdrachtbevestigingInleiding(e.target.value)}
+                />
+              </div>
+            </div>
+
             {(standaardTeksten.algemeen.trim() !== "" ||
               Object.values(standaardTeksten.perDienst).some((t) => (t || "").trim() !== "")) && (
               <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
@@ -6472,7 +6529,7 @@ export default function OffertetoolApp() {
                       </div>
 
                       <p style={{ fontSize: 13.5, lineHeight: 1.6, color: "#3A4038", marginBottom: 24 }}>
-                        {afzender.inleiding}
+                        {opdrachtbevestigingInleiding}
                       </p>
 
                       {(klantToelichtingen[klant.id] || "").trim() !== "" && (

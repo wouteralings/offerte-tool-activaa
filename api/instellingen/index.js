@@ -63,6 +63,7 @@ const TOEGESTANE_SLEUTELS = new Set([
   "taak-instellingen-offerte",
   "taak-instellingen-opdrachtbevestiging",
   "mailtekst-opdrachtbevestiging",
+  "inleiding-opdrachtbevestiging",
 ]);
 
 module.exports = async function (context, req) {
