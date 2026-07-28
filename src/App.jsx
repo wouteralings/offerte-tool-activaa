@@ -640,7 +640,7 @@ export default function OffertetoolApp() {
   const huidigeGebruiker = echteGebruiker || MOCK_USER;
 
   const [afzender, setAfzender] = useState({
-    bedrijf: "Onze Firma B.V.",
+    bedrijf: "Activaa Accountants en Adviseurs",
     adres: "Handelskade 12",
     postcode: "3011 CV",
     plaats: "Rotterdam",
@@ -1923,7 +1923,7 @@ export default function OffertetoolApp() {
     const groep = Array.isArray(klanten) ? klanten : [klanten];
     const eerste = groep[0];
     const bedrijfsnamen = groep.map((k) => k.naam).join(" en ");
-    const onderwerp = `Offerte ${afzender.bedrijf}`;
+    const onderwerp = `Voorstel tot samenwerken ${afzender.bedrijf}`;
     const tekst = standaardMailtekst
       .replaceAll("{contact}", voornaam(eerste.contact) || bedrijfsnamen || "")
       .replaceAll("{ondertekenaar}", huidigeGebruiker?.naam || "");
