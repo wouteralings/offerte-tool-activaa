@@ -1887,11 +1887,12 @@ export default function OffertetoolApp() {
           naar: email.trim(),
           onderwerp: concept.onderwerp,
           tekst: volledigeTekst,
+          offerteId: id,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      setMailStatus((prev) => ({ ...prev, [sleutel]: { status: "verzonden", van: data.van } }));
+      setMailStatus((prev) => ({ ...prev, [sleutel]: { status: "verzonden", van: data.van, pdfBijgevoegd: data.pdfBijgevoegd } }));
       setMailConceptOpenSleutel(null);
     } catch (e) {
       setMailStatus((prev) => ({ ...prev, [sleutel]: { status: "fout", bericht: e.message } }));
@@ -4329,7 +4330,8 @@ export default function OffertetoolApp() {
 
                           {status?.status === "verzonden" && (
                             <div style={{ fontSize: 11, color: "#2E7D4F", marginTop: 3 }}>
-                              Verzonden vanaf {status.van}.
+                              Verzonden vanaf {status.van}
+                              {status.pdfBijgevoegd ? ", met de offerte-PDF als bijlage." : " (zonder PDF-bijlage — het genereren daarvan is niet gelukt)."}
                             </div>
                           )}
                           {status?.status === "fout" && (

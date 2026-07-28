@@ -1,4 +1,5 @@
-const { haalGraphToken } = require("../_gedeeld/onboarding.js");
+const { haalGraphToken, genereerOffertePdf } = require("../_gedeeld/onboarding.js");
+const { haalOfferteRecord } = require("../_gedeeld/offertes-opslag.js");
 
 // Vast afzenderadres — een gedeelde/functionele mailbox, geen persoonlijk account. Kan later
 // eventueel een omgevingsvariabele worden als dit ooit moet wisselen.
@@ -36,6 +37,7 @@ module.exports = async function (context, req) {
   const naar = (invoer.naar || "").trim();
   const onderwerp = (invoer.onderwerp || "Offerte").trim();
   const tekst = (invoer.tekst || "").trim();
+  const offerteId = (invoer.offerteId || "").trim();
 
   if (!naar || !tekst) {
     context.res = {
@@ -60,6 +62,36 @@ module.exports = async function (context, req) {
       saveToSentItems: true,
     };
 
+    // De offerte-PDF als bijlage meesturen (zelfde generator/opmaak als de tekenlink en
+    // "Afdrukken / opslaan als PDF") — puur een extra gemak naast de tekenlink die al in de
+    // hoofdtekst staat, dus dit mag het versturen van de mail zelf nooit blokkeren. Lukt het
+    // niet (offerte nog niet opgeslagen, PDF-generatie mislukt), dan gaat de mail gewoon zonder
+    // bijlage de deur uit en wordt de fout alleen gelogd.
+    let pdfBijgevoegd = false;
+    if (offerteId) {
+      try {
+        const record = await haalOfferteRecord(offerteId);
+        if (record) {
+          const pdfBytes = await genereerOffertePdf(record);
+          const klantnaam = (record.klantNamen || [])[0] || "offerte";
+          const veiligeNaam = klantnaam.replace(/[\\/:*?"<>|]/g, "-").trim();
+          bericht.message.attachments = [
+            {
+              "@odata.type": "#microsoft.graph.fileAttachment",
+              name: `Offerte - ${veiligeNaam}.pdf`,
+              contentType: "application/pdf",
+              contentBytes: Buffer.from(pdfBytes).toString("base64"),
+            },
+          ];
+          pdfBijgevoegd = true;
+        } else {
+          context.log.error(`verstuur-mail: offerte ${offerteId} niet gevonden, mail gaat zonder PDF-bijlage.`);
+        }
+      } catch (e) {
+        context.log.error("verstuur-mail: PDF-bijlage genereren mislukt, mail gaat zonder bijlage:", e);
+      }
+    }
+
     const res = await fetch(`https://graph.microsoft.com/v1.0/users/${AFZENDER_MAILBOX}/sendMail`, {
       method: "POST",
       headers: {
@@ -76,7 +108,7 @@ module.exports = async function (context, req) {
 
     context.res = {
       headers: { "Content-Type": "application/json" },
-      body: { verzonden: true, van: AFZENDER_MAILBOX },
+      body: { verzonden: true, van: AFZENDER_MAILBOX, pdfBijgevoegd },
     };
   } catch (err) {
     if (err.message === "MISSING_CONFIG") {
