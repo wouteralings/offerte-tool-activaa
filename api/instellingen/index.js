@@ -53,6 +53,7 @@ const TOEGESTANE_SLEUTELS = new Set([
   "roadmap",
   "dienstencatalogus",
   "standaardteksten",
+  "webhook-acceptatie",
 ]);
 
 module.exports = async function (context, req) {

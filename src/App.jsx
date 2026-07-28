@@ -36,6 +36,7 @@ import {
   Download,
   Mail,
   ExternalLink,
+  Zap,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -1210,6 +1211,33 @@ export default function OffertetoolApp() {
     if (!mailtekstGeladen) return;
     opslagSetDebounced("mailtekst", standaardMailtekst);
   }, [standaardMailtekst, mailtekstGeladen]);
+
+  // Power Automate-webhook: optionele URL die de server (api/teken) met een POST aanroept
+  // zodra een klant een offerte accepteert. Leeg = uitgeschakeld, geen extra actie.
+  const [webhookAcceptatie, setWebhookAcceptatie] = useState("");
+  const [webhookGeladen, setWebhookGeladen] = useState(false);
+
+  useEffect(() => {
+    let actief = true;
+    (async () => {
+      try {
+        const waarde = await opslagGet("webhook-acceptatie");
+        if (actief && waarde) setWebhookAcceptatie(waarde);
+      } catch (e) {
+        // nog geen webhook ingesteld
+      } finally {
+        if (actief) setWebhookGeladen(true);
+      }
+    })();
+    return () => {
+      actief = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!webhookGeladen) return;
+    opslagSetDebounced("webhook-acceptatie", webhookAcceptatie);
+  }, [webhookAcceptatie, webhookGeladen]);
 
   // algemeneVoorwaarden: los te beheren, verschijnt als klikbare link op elke offerte
   const [algemeneVoorwaarden, setAlgemeneVoorwaarden] = useState({
@@ -2387,6 +2415,27 @@ export default function OffertetoolApp() {
                 <span style={{ fontSize: 13.5, color: "#5B6259" }}>dagen</span>
               </div>
             </div>
+
+            <div className="ot-card" style={{ padding: 24, marginTop: 16 }}>
+              <label className="ot-label" style={{ marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}>
+                <Zap size={14} />
+                Power Automate-webhook bij acceptatie
+              </label>
+              <p style={{ fontSize: 12.5, color: "#8A9089", marginTop: 4, marginBottom: 10 }}>
+                Zodra een klant een offerte accepteert (ondertekent met akkoord), stuurt de tool een
+                POST-verzoek met de offertegegevens (klant, ondertekenaar, bedrag) naar deze URL — bijvoorbeeld
+                de trigger-URL van een Power Automate-flow "Wanneer een HTTP-aanvraag wordt ontvangen". Laat
+                leeg om dit uit te laten.
+              </p>
+              <input
+                className="ot-input"
+                type="url"
+                placeholder="https://prod-00.westeurope.logic.azure.com/workflows/..."
+                value={webhookAcceptatie}
+                onChange={(e) => setWebhookAcceptatie(e.target.value)}
+              />
+            </div>
+
             <div style={{ display: "flex", justifyContent: "flex-start", marginTop: 22 }}>
               <button className="ot-btn-secondary" onClick={() => setStap(terugNaarStap)}>
                 <ChevronLeft size={15} />

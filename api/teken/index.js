@@ -1,6 +1,7 @@
 const { BlobServiceClient } = require("@azure/storage-blob");
 const { verwerkOndertekeningNaSignering, genereerOffertePdf } = require("../_gedeeld/onboarding");
 const { magDoor } = require("../_gedeeld/ratelimit");
+const { haalInstellingWaarde } = require("../_gedeeld/instellingen-opslag");
 
 // Zelfde container/blob-indeling als api/offerte, zodat dit gewoon dezelfde offerte-records
 // leest en bijwerkt — deze Function is puur een publiek, anoniem toegankelijk "loket" erbovenop.
@@ -41,6 +42,69 @@ function haalClientIp(req) {
   // IPv4 met poort ("1.2.3.4:5678") -> alleen het adres; IPv6 laten we ongemoeid.
   const zonderPoort = eersteDeel.includes(".") ? eersteDeel.split(":")[0] : eersteDeel;
   return zonderPoort || "onbekend";
+}
+
+// Bouwt de JSON-payload voor de Power Automate-webhook uit het offerte-record. Losstaande,
+// pure functie (geen netwerk/opslag) zodat dit apart getest kan worden — de vorm van de
+// payload is de "publieke API" naar Power Automate toe, dus moet stabiel en voorspelbaar zijn.
+function bouwWebhookPayload(record, tekenlink) {
+  const regelsPerKlant = record.data?.regelsPerKlant || {};
+  const alleRegels = Object.values(regelsPerKlant).flat();
+  const subtotaal = alleRegels.reduce((som, r) => som + (r.subtotaal || 0), 0);
+  const btw = subtotaal * 0.21;
+  const afronden = (n) => Math.round(n * 100) / 100;
+
+  return {
+    gebeurtenis: "offerte-geaccepteerd",
+    offerteId: record.id,
+    tekenlink: tekenlink || null,
+    klantNamen: record.klantNamen || [],
+    klanten: (record.data?.gekozenKlanten || []).map((k) => ({ id: k.id, naam: k.naam, email: k.email || null })),
+    namens: record.data?.namens || null,
+    ondertekenaar: {
+      naam: record.ondertekening?.naam || null,
+      email: record.ondertekening?.email || null,
+      opmerking: record.ondertekening?.opmerking || null,
+      emailKomtOvereenMetKlant: record.ondertekening?.emailKomtOvereen ?? null,
+    },
+    ondertekendOp: record.ondertekening?.op || null,
+    bedrag: { subtotaal: afronden(subtotaal), btw: afronden(btw), totaal: afronden(subtotaal + btw) },
+  };
+}
+
+// Doet de daadwerkelijke POST naar de webhook-URL — met een timeout, zodat een trage of
+// onbereikbare Power Automate-flow de acceptatie van de klant niet blijft ophouden.
+async function stuurWebhook(url, payload, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    return { ok: res.ok, status: res.status };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Best-effort: leest de eventueel ingestelde Power Automate-webhook-URL (Instellingen) en
+// stuurt daar, alléén bij een akkoord-ondertekening, een POST met de offertegegevens naartoe.
+// Geen URL ingesteld -> stilletjes niets doen. Mag de acceptatie zelf nooit laten mislukken;
+// de aanroeper vangt fouten hiervan af, net als bij verwerkOndertekeningNaSignering.
+async function stuurAcceptatieWebhook(record, tekenlink, contextLog) {
+  const webhookUrl = (await haalInstellingWaarde("webhook-acceptatie"))?.trim();
+  if (!webhookUrl) return;
+
+  const payload = bouwWebhookPayload(record, tekenlink);
+  const resultaat = await stuurWebhook(webhookUrl, payload);
+  if (!resultaat.ok) {
+    contextLog(`Power Automate-webhook gaf status ${resultaat.status} terug.`);
+  } else {
+    contextLog("Power Automate-webhook verzonden.");
+  }
 }
 
 module.exports = async function (context, req) {
@@ -204,6 +268,12 @@ module.exports = async function (context, req) {
         } catch (e) {
           context.log.error("[onboarding] Verwerking na ondertekening mislukt:", e);
         }
+        try {
+          const tekenlink = req.headers?.referer || req.headers?.Referer || null;
+          await stuurAcceptatieWebhook(record, tekenlink, (bericht) => context.log(`[webhook] ${bericht}`));
+        } catch (e) {
+          context.log.error("[webhook] Versturen naar Power Automate mislukt:", e);
+        }
       }
 
       context.res = {
@@ -231,3 +301,9 @@ module.exports = async function (context, req) {
     };
   }
 };
+
+// Los toegankelijk voor tests (bewust geen netwerk/opslag-afhankelijkheden in deze twee) —
+// de Azure Functions-runtime roept alleen module.exports zelf aan als functie, deze twee
+// extra properties daarop zijn daarvoor onzichtbaar/onschadelijk.
+module.exports.bouwWebhookPayload = bouwWebhookPayload;
+module.exports.stuurWebhook = stuurWebhook;
