@@ -3426,10 +3426,13 @@ export default function OffertetoolApp() {
               </div>
             </div>
 
-            <div className="ot-card" style={{ padding: 24, marginTop: 16 }}>
+            <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
+              <span>Webhooks</span>
+            </div>
+            <div className="ot-card" style={{ padding: 24 }}>
               <label className="ot-label" style={{ marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}>
                 <Zap size={14} />
-                Power Automate-webhook bij acceptatie
+                Offerte — webhook bij acceptatie
               </label>
               <p style={{ fontSize: 12.5, color: "#8A9089", marginTop: 4, marginBottom: 10 }}>
                 Zodra een klant een offerte accepteert (ondertekent met akkoord), stuurt de tool een
@@ -3444,6 +3447,24 @@ export default function OffertetoolApp() {
                 placeholder="https://prod-00.westeurope.logic.azure.com/workflows/..."
                 value={webhookAcceptatie}
                 onChange={(e) => setWebhookAcceptatie(e.target.value)}
+              />
+            </div>
+            <div className="ot-card" style={{ padding: 24, marginTop: 16 }}>
+              <label className="ot-label" style={{ marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}>
+                <Zap size={14} />
+                Opdrachtbevestiging — webhook bij ondertekening
+              </label>
+              <p style={{ fontSize: 12.5, color: "#8A9089", marginTop: 4, marginBottom: 10 }}>
+                Zelfde werking als de offerte-webhook hierboven — het Dynamics-accountid komt als{" "}
+                <code>?ID=</code> op de URL, en de body bevat het document-ID, klant, ondertekenaar, tekenlink en
+                bedrag. Los in te stellen van de offerte-webhook; leeg = uitgeschakeld.
+              </p>
+              <input
+                className="ot-input"
+                type="url"
+                placeholder="https://prod-00.westeurope.logic.azure.com/workflows/..."
+                value={webhookOpdrachtbevestiging}
+                onChange={(e) => setWebhookOpdrachtbevestiging(e.target.value)}
               />
             </div>
 
@@ -3517,24 +3538,6 @@ export default function OffertetoolApp() {
                   />
                 </div>
               </div>
-            </div>
-
-            <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
-              <span>Opdrachtbevestiging — webhook bij ondertekening</span>
-            </div>
-            <div className="ot-card" style={{ padding: 24 }}>
-              <p style={{ fontSize: 12.5, color: "#8A9089", marginTop: 0, marginBottom: 10 }}>
-                Zelfde werking als de offerte-webhook hierboven — het Dynamics-accountid komt als{" "}
-                <code>?ID=</code> op de URL, en de body bevat het document-ID, klant, ondertekenaar, tekenlink en
-                bedrag. Los in te stellen van de offerte-webhook; leeg = uitgeschakeld.
-              </p>
-              <input
-                className="ot-input"
-                type="url"
-                placeholder="https://prod-00.westeurope.logic.azure.com/workflows/..."
-                value={webhookOpdrachtbevestiging}
-                onChange={(e) => setWebhookOpdrachtbevestiging(e.target.value)}
-              />
             </div>
 
             <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
@@ -6317,28 +6320,32 @@ export default function OffertetoolApp() {
         {/* -------------------- OPDRACHTBEVESTIGING -------------------- */}
         {stap === "opdrachtbevestiging" && (
           <StapWrapper
-            titel="Opdrachtbevestiging"
-            toelichting="Eerst het type opdracht kiezen (bepaalt welke verplichte paragrafen verschijnen), dan de teksten zelf — net als bij Bijlage: vooraf gevuld met de standaardtekst uit beheer. Verplichte paragrafen kun je hier niet wijzigen (dat doe je centraal via 'Opdrachtbevestiging-teksten beheren'), optionele paragrafen wel — en je kunt er zelf een toevoegen."
+            titel={gekozenKlanten.length > 1 ? `${gekozenKlanten.length} opdrachtbevestigingen` : "Opdrachtbevestiging"}
+            toelichting={
+              gekozenKlanten.length > 1
+                ? "Voor elke geselecteerde klant is een eigen opdrachtbevestiging samengesteld. Druk alles in één keer af of sla op als PDF."
+                : "Kies eerst het opdrachttype, controleer de opdrachtbevestiging en druk af of sla op als PDF."
+            }
           >
             {gekozenKlanten.length === 0 ? (
-              <div className="ot-card" style={{ padding: 24, textAlign: "center" }}>
-                <p style={{ fontSize: 13.5, color: "#5B6259", marginBottom: 14 }}>
-                  Kies eerst een klant en diensten — een opdrachtbevestiging gebruikt dezelfde selectie als de offerte.
-                </p>
-                <button className="ot-btn-primary" onClick={() => setStap("klant")}>
-                  <Users size={15} />
-                  Naar Klant
-                </button>
+              <div style={{ textAlign: "center", padding: 40, color: "#8A9089", fontSize: 13.5 }}>
+                Nog geen klant geselecteerd.
+                <div style={{ marginTop: 12 }}>
+                  <button className="ot-btn-secondary" onClick={() => setStap("klant")}>
+                    <Users size={15} />
+                    Klant kiezen
+                  </button>
+                </div>
               </div>
             ) : opdrachttypes.length === 0 ? (
-              <div className="ot-card" style={{ padding: 24, textAlign: "center" }}>
-                <p style={{ fontSize: 13.5, color: "#5B6259", marginBottom: 14 }}>
-                  Er zijn nog geen opdrachttypes ingericht. Voeg er eerst één toe via "Opdrachtbevestiging-teksten beheren".
-                </p>
-                <button className="ot-btn-primary" onClick={openOpdrachtbevestigingTeksten}>
-                  <ScrollText size={15} />
-                  Opdrachtbevestiging-teksten beheren
-                </button>
+              <div style={{ textAlign: "center", padding: 40, color: "#8A9089", fontSize: 13.5 }}>
+                Er zijn nog geen opdrachttypes ingericht.
+                <div style={{ marginTop: 12 }}>
+                  <button className="ot-btn-primary" onClick={openOpdrachtbevestigingTeksten}>
+                    <ScrollText size={15} />
+                    Opdrachtbevestiging-teksten beheren
+                  </button>
+                </div>
               </div>
             ) : (
               <>
@@ -6356,62 +6363,17 @@ export default function OffertetoolApp() {
                     ))}
                   </div>
                   <p style={{ fontSize: 12, color: "#8A9089", margin: "10px 0 0" }}>
-                    Wisselen van type vervangt de verplichte paragrafen hieronder door de set die bij dat type hoort
-                    — al ingevulde optionele paragrafen blijven staan.
+                    Wisselen van type vervangt de verplichte paragrafen door de set die bij dat type hoort (zie
+                    hieronder in de opdrachtbevestiging zelf) — al ingevulde optionele paragrafen blijven staan.
                   </p>
                 </div>
 
                 {gekozenOpdrachttypeId && (
                   <>
-                    <div className="ot-cat-koptekst">
-                      <span>
-                        Verplichte paragrafen —{" "}
-                        {opdrachttypes.find((t) => t.id === gekozenOpdrachttypeId)?.naam}
-                      </span>
-                    </div>
-                    <div style={{ display: "grid", gap: 14, marginBottom: 8 }}>
-                      {(opdrachtbevestigingParagrafen.verplicht || []).length === 0 && (
-                        <p style={{ fontSize: 12.5, color: "#8A9089" }}>
-                          Dit opdrachttype heeft nog geen verplichte paragrafen ingesteld.
-                        </p>
-                      )}
-                      {(opdrachtbevestigingParagrafen.verplicht || []).map((p) => (
-                        <div key={p.id} className="ot-card" style={{ padding: 18 }}>
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
-                            <span style={{ fontSize: 14, fontWeight: 700 }}>{p.titel}</span>
-                            <span
-                              style={{
-                                fontSize: 10.5,
-                                fontWeight: 700,
-                                textTransform: "uppercase",
-                                letterSpacing: ".03em",
-                                padding: "3px 9px",
-                                borderRadius: 20,
-                                color: "#B23B3B",
-                                background: "#FBEAEA",
-                                border: "1px solid #B23B3B33",
-                                flexShrink: 0,
-                              }}
-                            >
-                              Verplicht
-                            </span>
-                          </div>
-                          {p.tekst?.trim() ? (
-                            <div style={{ fontSize: 13, color: "#3A4038", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{p.tekst}</div>
-                          ) : (
-                            <div style={{ fontSize: 13, color: "#8A9089", fontStyle: "italic" }}>
-                              Nog geen tekst ingevuld voor dit type — vul dit in via "Opdrachtbevestiging-teksten
-                              beheren".
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-
                     <div className="ot-cat-koptekst" style={{ marginTop: 26 }}>
                       <span>Extra paragrafen (optioneel)</span>
                     </div>
-                    <div style={{ display: "grid", gap: 14 }}>
+                    <div style={{ display: "grid", gap: 14, marginBottom: 22 }}>
                       {(opdrachtbevestigingParagrafen.optioneel || []).map((p) => (
                         <div key={p.id} className="ot-card" style={{ padding: 18 }}>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
@@ -6441,6 +6403,306 @@ export default function OffertetoolApp() {
                     </div>
                   </>
                 )}
+
+                <div id="opdrachtbevestiging-print-gebied">
+                {gekozenKlanten.map((klant, idx) => {
+                  const klantRegels = regelsVoorKlant(klant.id);
+                  const klantTotaalExcl = klantRegels.reduce((s, r) => s + r.subtotaal, 0);
+                  const klantBtw = klantTotaalExcl * 0.21;
+                  const klantTotaalIncl = klantTotaalExcl + klantBtw;
+                  const groepen = ["eenmalig", "doorlopend"]
+                    .map((cat) => ({ cat, items: klantRegels.filter((r) => r.categorie === cat) }))
+                    .filter((g) => g.items.length > 0);
+                  const gekozenType = opdrachttypes.find((t) => t.id === gekozenOpdrachttypeId);
+                  const alleParagrafen = [...(opdrachtbevestigingParagrafen.verplicht || []), ...(opdrachtbevestigingParagrafen.optioneel || [])];
+
+                  return (
+                    <div
+                      key={klant.id}
+                      className="ot-card offerte-doc"
+                      style={{ padding: 40, marginBottom: idx < gekozenKlanten.length - 1 ? 24 : 0 }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                        <div>
+                          {gekozenKlanten.length > 1 && (
+                            <div style={{ fontSize: 11.5, color: "#B98237", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 10 }}>
+                              Opdrachtbevestiging {idx + 1} van {gekozenKlanten.length}
+                            </div>
+                          )}
+                          <div className="offertetool-serif" style={{ fontSize: 26, fontWeight: 600 }}>Opdrachtbevestiging</div>
+                          {gekozenType && (
+                            <div style={{ fontSize: 12.5, color: "#1C5D8C", fontWeight: 700, marginTop: 2 }}>{gekozenType.naam}</div>
+                          )}
+                          <div style={{ fontSize: 12.5, color: "#8A9089", marginTop: 4 }}>
+                            Datum: {new Date().toLocaleDateString("nl-NL")}
+                          </div>
+                        </div>
+                        {logo && (
+                          <img
+                            src={logo}
+                            alt="Logo"
+                            style={{ maxWidth: 140, maxHeight: 56, objectFit: "contain", flexShrink: 0, marginLeft: 24 }}
+                          />
+                        )}
+                      </div>
+                      <div style={{ textAlign: "right", fontSize: 12.5, color: "#5B6259", lineHeight: 1.5, marginBottom: 32 }}>
+                        <div style={{ fontWeight: 700, color: "#1C2321" }}>{afzender.bedrijf}</div>
+                        <div>{afzender.adres}</div>
+                        <div>{afzender.postcode} {afzender.plaats}</div>
+                        <div>KvK {afzender.kvk}</div>
+                      </div>
+
+                      <div className="ot-tweekolommen" style={{ marginBottom: 28, paddingBottom: 24, borderBottom: "1px solid #E2E4DF" }}>
+                        <div>
+                          <div className="ot-label">Aan</div>
+                          <div style={{ fontWeight: 700, fontSize: 14.5 }}>{klant.naam}</div>
+                          <div style={{ fontSize: 13, color: "#5B6259" }}>{klant.contact}</div>
+                          {klantAdresRegels(klant).map((regel, i) => (
+                            <div key={i} style={{ fontSize: 13, color: "#5B6259" }}>{regel}</div>
+                          ))}
+                          <div style={{ fontSize: 13, color: "#5B6259" }}>{klant.email}</div>
+                        </div>
+                        <div>
+                          <div className="ot-label">Namens</div>
+                          <div style={{ fontWeight: 700, fontSize: 14.5 }}>{huidigeGebruiker.naam}</div>
+                          {huidigeGebruiker.email && huidigeGebruiker.email.toLowerCase() !== (huidigeGebruiker.naam || "").toLowerCase() && (
+                            <div style={{ fontSize: 13, color: "#5B6259" }}>{huidigeGebruiker.email}</div>
+                          )}
+                        </div>
+                      </div>
+
+                      <p style={{ fontSize: 13.5, lineHeight: 1.6, color: "#3A4038", marginBottom: 24 }}>
+                        {afzender.inleiding}
+                      </p>
+
+                      {(klantToelichtingen[klant.id] || "").trim() !== "" && (
+                        <div style={{ background: "#EAF2F8", borderRadius: 8, padding: 16, marginBottom: 24 }}>
+                          <div className="ot-label" style={{ color: "#1C5D8C" }}>Speciaal voor {klant.naam}</div>
+                          <div style={{ fontSize: 13.5, lineHeight: 1.6, color: "#3A4038", whiteSpace: "pre-wrap" }}>
+                            {klantToelichtingen[klant.id]}
+                          </div>
+                        </div>
+                      )}
+
+                      {alleParagrafen.length > 0 && (
+                        <div style={{ marginBottom: 24, display: "grid", gap: 18 }}>
+                          {alleParagrafen.map((p) => (
+                            <div key={p.id}>
+                              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>{p.titel}</div>
+                              {p.tekst?.trim() ? (
+                                <div style={{ fontSize: 13.5, lineHeight: 1.6, color: "#3A4038", whiteSpace: "pre-wrap" }}>{p.tekst}</div>
+                              ) : (
+                                <div style={{ fontSize: 13.5, lineHeight: 1.6, color: "#8A9089", fontStyle: "italic" }}>
+                                  Nog geen tekst ingevuld voor dit type — vul dit in via "Opdrachtbevestiging-teksten beheren".
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 20 }}>
+                        <thead>
+                          <tr style={{ borderBottom: "2px solid #1C2321" }}>
+                            <th style={{ textAlign: "left", padding: "8px 4px", fontSize: 11.5, textTransform: "uppercase", letterSpacing: ".04em", color: "#5B6259" }}>Dienst</th>
+                            <th style={{ textAlign: "right", padding: "8px 4px", fontSize: 11.5, textTransform: "uppercase", letterSpacing: ".04em", color: "#5B6259" }}>Aantal</th>
+                            <th style={{ textAlign: "right", padding: "8px 4px", fontSize: 11.5, textTransform: "uppercase", letterSpacing: ".04em", color: "#5B6259" }}>Prijs</th>
+                            <th style={{ textAlign: "right", padding: "8px 4px", fontSize: 11.5, textTransform: "uppercase", letterSpacing: ".04em", color: "#5B6259" }}>Subtotaal</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {groepen.map((g) => (
+                            <React.Fragment key={g.cat}>
+                              <tr>
+                                <td colSpan={4} style={{ padding: "12px 4px 4px", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "#B98237" }}>
+                                  {CATEGORIE_LABELS[g.cat]}
+                                </td>
+                              </tr>
+                              {g.items.map((r) => (
+                                <tr key={r.id} style={{ borderBottom: "1px solid #E2E4DF" }}>
+                                  <td style={{ padding: "10px 4px" }}>
+                                    <div style={{ fontWeight: 600, fontSize: 13.5 }}>{r.naam}</div>
+                                  </td>
+                                  <td style={{ padding: "10px 4px", textAlign: "right", fontSize: 13.5 }}>{r.aantal} {r.eenheid}</td>
+                                  <td style={{ padding: "10px 4px", textAlign: "right", fontSize: 13.5 }}>
+                                    {r.opAanvraag ? "op aanvraag" : r.opNacalculatie ? "nacalculatie" : currency(r.prijs)}
+                                  </td>
+                                  <td style={{ padding: "10px 4px", textAlign: "right", fontSize: 13.5, fontWeight: 700 }}>
+                                    {r.opAanvraag || r.opNacalculatie ? "—" : currency(r.subtotaal)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </React.Fragment>
+                          ))}
+                        </tbody>
+                      </table>
+
+                      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                        <div style={{ width: "100%", maxWidth: 240, fontSize: 13.5 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
+                            <span style={{ color: "#5B6259" }}>Subtotaal</span>
+                            <span>{currency(klantTotaalExcl)}</span>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
+                            <span style={{ color: "#5B6259" }}>Btw (21%)</span>
+                            <span>{currency(klantBtw)}</span>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0 0", marginTop: 6, borderTop: "2px solid #1C2321", fontWeight: 700, fontSize: 15 }}>
+                            <span>Totaal</span>
+                            <span>{currency(klantTotaalIncl)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {algemeneVoorwaarden.url && (
+                        <p style={{ fontSize: 11, color: "#8A9089", marginTop: 32, paddingTop: 12, borderTop: "1px solid #E2E4DF" }}>
+                          Op deze opdrachtbevestiging zijn onze{" "}
+                          <a
+                            href={algemeneVoorwaarden.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ color: "#1C5D8C", textDecoration: "underline" }}
+                          >
+                            {algemeneVoorwaarden.titel?.toLowerCase() || "algemene voorwaarden"}
+                          </a>{" "}
+                          van toepassing.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {roadmapToevoegen && roadmap.fases.length > 0 && (
+                  <div className="ot-card offerte-doc" style={{ padding: 40 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+                      <div className="offertetool-serif" style={{ fontSize: 22, fontWeight: 600 }}>
+                        {roadmap.titel}
+                      </div>
+                      {logo && (
+                        <img
+                          src={logo}
+                          alt="Logo"
+                          style={{ maxWidth: 140, maxHeight: 56, objectFit: "contain", flexShrink: 0, marginLeft: 24 }}
+                        />
+                      )}
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+                      {roadmap.fases.map((fase) => (
+                        <div key={fase.id} style={{ display: "flex", flexDirection: "column" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                            <div
+                              style={{
+                                width: 30,
+                                height: 30,
+                                borderRadius: "50%",
+                                background: "#1C5D8C",
+                                color: "#fff",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                flexShrink: 0,
+                              }}
+                            >
+                              {fase.markering}
+                            </div>
+                            <div style={{ height: 2, background: "#EAF2F8", flex: 1 }} />
+                          </div>
+                          <div
+                            style={{
+                              border: "1.5px solid #1C5D8C",
+                              borderRadius: 10,
+                              padding: 14,
+                              flex: 1,
+                              display: "flex",
+                              flexDirection: "column",
+                            }}
+                          >
+                            <div style={{ fontSize: 10, fontWeight: 700, color: "#B98237", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 6 }}>
+                              {fase.label}
+                            </div>
+                            <div style={{ fontSize: 13.5, fontWeight: 700, color: "#1C2321", marginBottom: 8 }}>
+                              {fase.titel}
+                            </div>
+                            {fase.puntenTekst
+                              .split("\n")
+                              .map((p) => p.trim())
+                              .filter(Boolean).length > 0 && (
+                              <ul style={{ margin: 0, marginBottom: 10, paddingLeft: 16, fontSize: 11.5, color: "#3A4038", lineHeight: 1.5 }}>
+                                {fase.puntenTekst
+                                  .split("\n")
+                                  .map((p) => p.trim())
+                                  .filter(Boolean)
+                                  .map((punt, i) => (
+                                    <li key={i}>{punt}</li>
+                                  ))}
+                              </ul>
+                            )}
+                            {fase.resultaatTekst && (
+                              <div
+                                style={{
+                                  marginTop: "auto",
+                                  background: "#EAF2F8",
+                                  borderRadius: 6,
+                                  padding: "8px 10px",
+                                }}
+                              >
+                                <div style={{ fontSize: 9.5, fontWeight: 700, color: "#1C5D8C", textTransform: "uppercase", letterSpacing: ".04em" }}>
+                                  {fase.resultaatLabel}
+                                </div>
+                                <div style={{ fontSize: 11.5, fontWeight: 600, color: "#1C2321" }}>{fase.resultaatTekst}</div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {(algemeneToelichting.trim() !== "" ||
+                  geselecteerdeEntries.some(({ dienst }) => (bijlageToelichtingen[dienst.id] || "").trim() !== "")) && (
+                  <div className="ot-card offerte-doc" style={{ padding: 40 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                      <div className="offertetool-serif" style={{ fontSize: 22, fontWeight: 600 }}>
+                        Bijlage — toelichting per onderdeel
+                      </div>
+                      {logo && (
+                        <img
+                          src={logo}
+                          alt="Logo"
+                          style={{ maxWidth: 140, maxHeight: 56, objectFit: "contain", flexShrink: 0, marginLeft: 24 }}
+                        />
+                      )}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#8A9089", marginBottom: 24 }}>
+                      Deze toelichting geldt voor alle bovenstaande opdrachtbevestigingen.
+                    </div>
+                    <div style={{ display: "grid", gap: 20 }}>
+                      {algemeneToelichting.trim() !== "" && (
+                        <div style={{ paddingBottom: 16, borderBottom: "1px solid #E2E4DF" }}>
+                          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>Algemeen</div>
+                          <div style={{ fontSize: 13, color: "#3A4038", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                            {algemeneToelichting}
+                          </div>
+                        </div>
+                      )}
+                      {geselecteerdeEntries
+                        .filter(({ dienst }) => (bijlageToelichtingen[dienst.id] || "").trim() !== "")
+                        .map(({ dienst }) => (
+                          <div key={dienst.id} style={{ paddingBottom: 16, borderBottom: "1px solid #E2E4DF" }}>
+                            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>{dienst.naam}</div>
+                            <div style={{ fontSize: 13, color: "#3A4038", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                              {bijlageToelichtingen[dienst.id]}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+                </div>
 
                 {(() => {
                   // Zelfde groepering op (evt. aangepast) e-mailadres als bij de offerte
@@ -6592,39 +6854,41 @@ export default function OffertetoolApp() {
                   );
                 })()}
 
-                <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
-                  <span>Klant &amp; diensten (overgenomen)</span>
-                </div>
-                <div style={{ display: "grid", gap: 10 }}>
-                  {gekozenKlanten.map((klant) => {
-                    const regels = regelsVoorKlant(klant.id);
-                    const totaal = regels.reduce((s, r) => s + r.subtotaal, 0) * 1.21;
-                    return (
-                      <div
-                        key={klant.id}
-                        className="ot-card"
-                        style={{ padding: 18, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}
-                      >
-                        <div>
-                          <div style={{ fontWeight: 700, fontSize: 14 }}>{klant.naam}</div>
-                          <div style={{ fontSize: 12.5, color: "#5B6259", marginTop: 2 }}>
-                            {regels.length} dienst{regels.length === 1 ? "" : "en"} geselecteerd · totaal {currency(totaal)} —
-                            zelfde selectie als bij Diensten/Prijzen
-                          </div>
-                        </div>
-                        <button className="ot-btn-ghost" onClick={() => setStap("diensten")}>
-                          Wijzig bij Diensten kiezen
-                          <ChevronRight size={13} />
-                        </button>
+                {gekozenKlanten.length > 0 && (
+                  <div
+                    className="ot-card"
+                    style={{
+                      padding: 18,
+                      marginTop: 20,
+                      background: "#EAF2F8",
+                      borderColor: "#1C5D8C33",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                      gap: 12,
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: "#1C2321" }}>
+                        Ook een offerte nodig voor deze klant?
                       </div>
-                    );
-                  })}
-                </div>
+                      <div style={{ fontSize: 12.5, color: "#5B6259", marginTop: 2 }}>
+                        Gebruikt dezelfde klant en diensten — je hoeft alleen nog naar het offerte-scherm te gaan.
+                      </div>
+                    </div>
+                    <button className="ot-btn-primary" onClick={() => setStap("offerte")}>
+                      <FileText size={15} />
+                      Offerte maken
+                      <ChevronRight size={15} />
+                    </button>
+                  </div>
+                )}
 
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 26 }}>
-                  <button className="ot-btn-secondary" onClick={() => setStap("prijzen")}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20 }}>
+                  <button className="ot-btn-secondary" onClick={vorige}>
                     <ChevronLeft size={15} />
-                    Terug naar prijzen
+                    Terug naar offerte
                   </button>
                   <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                     <span style={{ fontSize: 12, color: "#8A9089" }}>
@@ -6665,7 +6929,11 @@ export default function OffertetoolApp() {
                       ) : (
                         <Printer size={15} />
                       )}
-                      {pdfBezigOpdrachtbevestiging ? "PDF maken…" : "Genereren & PDF bekijken"}
+                      {pdfBezigOpdrachtbevestiging
+                        ? "PDF maken…"
+                        : gekozenKlanten.length > 1
+                        ? "Alles afdrukken / opslaan als PDF"
+                        : "Afdrukken / opslaan als PDF"}
                     </button>
                   </div>
                 </div>
