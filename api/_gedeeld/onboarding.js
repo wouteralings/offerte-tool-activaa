@@ -57,23 +57,97 @@ async function haalAccountGegevens(accountId, dataverseToken) {
 }
 
 // ---------------------------------------------------------------------------
-// PDF's genereren met pdf-lib. Dit is een eigen, opgeschoonde lay-out — géén
-// pixel-perfecte kopie van het scherm, maar wel alle relevante inhoud: klant,
-// diensten/prijzen/totalen, en het ondertekeningsbewijs met de handtekening.
+// PDF's genereren met pdf-lib. Zelfde indeling, kleuren en volledige inhoud als
+// het "Afdrukken"-scherm in de app (offerte-print-gebied in App.jsx) — logo,
+// briefhoofd, Aan/Namens, categorieën, roadmap, bijlage-toelichting. Geen
+// pixel-perfecte kopie: het Fraunces-lettertype wordt vervangen door het
+// ingebouwde Times-Roman (seriffen-alternatief) en kaarten hebben rechte i.p.v.
+// ronde hoeken — maar wel dezelfde onderdelen en dezelfde kleuren.
 // ---------------------------------------------------------------------------
 
 const MARGE = 50;
 const PAGINA_BREEDTE = 595.28; // A4
 const PAGINA_HOOGTE = 841.89;
+const KOLOM_BREEDTE = PAGINA_BREEDTE - MARGE * 2;
+
+// Zelfde palet als de app (App.jsx-stijlvariabelen), omgezet naar 0-1 RGB.
+const KLEUR = {
+  primair: rgb(0.11, 0.137, 0.129), // #1C2321
+  secundair: rgb(0.357, 0.384, 0.349), // #5B6259
+  zwak: rgb(0.541, 0.565, 0.537), // #8A9089
+  rand: rgb(0.886, 0.894, 0.875), // #E2E4DF
+  goud: rgb(0.725, 0.51, 0.216), // #B98237
+  blauw: rgb(0.11, 0.365, 0.549), // #1C5D8C
+  blauwLicht: rgb(0.918, 0.949, 0.973), // #EAF2F8
+  fout: rgb(0.694, 0.29, 0.18), // #B14A2E
+};
+
+const CATEGORIE_LABELS_PDF = { eenmalig: "Eenmalige werkzaamheden", doorlopend: "Doorlopende dienstverlening" };
 
 async function nieuwPdfDocument() {
   const doc = await PDFDocument.create();
   const regular = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  return { doc, regular, bold };
+  const serif = await doc.embedFont(StandardFonts.TimesRoman);
+  const serifBold = await doc.embedFont(StandardFonts.TimesRomanBold);
+  return { doc, fonts: { regular, bold, serif, serifBold } };
 }
 
-function nieuwSchrijver(doc, regular, bold) {
+// pdf-lib's ingebouwde lettertypen kunnen alleen WinAnsi-tekens coderen — een
+// gebruiker die bijv. een pijltje "→" in een roadmap-titel of toelichting typt,
+// zou de hele PDF (en dus het mailen/downloaden) laten crashen. Bekende
+// symbolen worden vervangen door een ASCII-alternatief; elk ander teken dat
+// het lettertype niet kan coderen wordt "?", in plaats van dat de PDF faalt.
+function veiligeTekst(tekst, font) {
+  const ruw = String(tekst ?? "")
+    .replace(/→/g, "->")
+    .replace(/←/g, "<-")
+    .replace(/⇒/g, "=>")
+    .replace(/⇐/g, "<=")
+    .replace(/…/g, "...");
+  let resultaat = "";
+  for (const teken of ruw) {
+    try {
+      font.encodeText(teken);
+      resultaat += teken;
+    } catch (e) {
+      resultaat += "?";
+    }
+  }
+  return resultaat;
+}
+
+// Verdeelt tekst (met eventuele eigen regeleinden) in regels die daadwerkelijk
+// passen binnen maxBreedte, op basis van de echte tekenbreedte van het lettertype.
+// Maakt de tekst meteen ook veilig (zie veiligeTekst), zodat de breedtemeting
+// en de latere tekening altijd op dezelfde (gecodeerde) tekst gebeuren.
+function verdeelInRegels(ruweTekst, font, size, maxBreedte) {
+  const tekst = veiligeTekst(ruweTekst, font);
+  const paragrafen = String(tekst ?? "").split("\n");
+  const regels = [];
+  paragrafen.forEach((paragraaf) => {
+    const woorden = paragraaf.split(/\s+/).filter(Boolean);
+    if (woorden.length === 0) {
+      regels.push("");
+      return;
+    }
+    let huidige = "";
+    woorden.forEach((woord) => {
+      const kandidaat = huidige ? `${huidige} ${woord}` : woord;
+      if (huidige && font.widthOfTextAtSize(kandidaat, size) > maxBreedte) {
+        regels.push(huidige);
+        huidige = woord;
+      } else {
+        huidige = kandidaat;
+      }
+    });
+    regels.push(huidige);
+  });
+  return regels;
+}
+
+function nieuwSchrijver(doc, fonts) {
+  const { regular, bold } = fonts;
   let page = doc.addPage([PAGINA_BREEDTE, PAGINA_HOOGTE]);
   let y = PAGINA_HOOGTE - MARGE;
 
@@ -81,77 +155,449 @@ function nieuwSchrijver(doc, regular, bold) {
     if (y - benodigdeRuimte < MARGE) {
       page = doc.addPage([PAGINA_BREEDTE, PAGINA_HOOGTE]);
       y = PAGINA_HOOGTE - MARGE;
+      return true;
     }
+    return false;
   }
 
-  function regel(tekst, { size = 10.5, font = regular, kleur = rgb(0.16, 0.18, 0.16), x = MARGE, ruimteNa = 14 } = {}) {
+  // Begin altijd een nieuwe pagina — gebruikt om elk onderdeel (offerte per
+  // klant, roadmap, bijlage) op zijn eigen pagina te laten beginnen, zoals de
+  // browser-afdrukstand dat ook doet (elk "offerte-doc"-blok = 1 pagina).
+  function nieuwePagina() {
+    page = doc.addPage([PAGINA_BREEDTE, PAGINA_HOOGTE]);
+    y = PAGINA_HOOGTE - MARGE;
+  }
+
+  function regel(tekst, { size = 10.5, font = regular, kleur = KLEUR.primair, x = MARGE, ruimteNa = 14 } = {}) {
     nieuwePaginaIndienNodig(ruimteNa);
-    page.drawText(String(tekst ?? ""), { x, y, size, font, color: kleur });
+    page.drawText(veiligeTekst(tekst, font), { x, y, size, font, color: kleur });
     y -= ruimteNa;
   }
 
-  function kop(tekst, size = 15) {
+  // Tekst op een specifieke (x, y) tekenen zonder de cursor te verschuiven —
+  // nodig voor kolommen/briefhoofd waar meerdere stukken tekst op dezelfde
+  // hoogte moeten staan. uitlijning "rechts" trekt de tekst terug vanaf rechterX.
+  function tekstOpY(tekst, x, yPos, { size = 10.5, font = regular, kleur = KLEUR.primair, uitlijning = "links", rechterX } = {}) {
+    const inhoud = veiligeTekst(tekst, font);
+    let tekenX = x;
+    if (uitlijning === "rechts") {
+      tekenX = (rechterX ?? x) - font.widthOfTextAtSize(inhoud, size);
+    }
+    page.drawText(inhoud, { x: tekenX, y: yPos, size, font, color: kleur });
+  }
+
+  function paragraaf(tekst, { size = 12, font = regular, kleur = KLEUR.secundair, x = MARGE, maxBreedte, regelHoogte, ruimteNa = 0 } = {}) {
+    if (!tekst) return;
+    const breedte = maxBreedte ?? PAGINA_BREEDTE - x - MARGE;
+    const hoogte = regelHoogte ?? size * 1.45;
+    verdeelInRegels(tekst, font, size, breedte).forEach((regelTekst) => {
+      regel(regelTekst, { size, font, kleur, x, ruimteNa: hoogte });
+    });
+    if (ruimteNa) witruimte(ruimteNa);
+  }
+
+  function kop(tekst, { size = 15, font, kleur = KLEUR.primair, ruimteNa } = {}) {
     nieuwePaginaIndienNodig(size + 16);
-    regel(tekst, { size, font: bold, ruimteNa: size + 10 });
+    regel(tekst, { size, font: font || bold, kleur, ruimteNa: ruimteNa ?? size + 10 });
+  }
+
+  function lijn({ kleur = KLEUR.rand, dikte = 1, ruimteVoor = 0, ruimteNa = 12 } = {}) {
+    if (ruimteVoor) witruimte(ruimteVoor);
+    nieuwePaginaIndienNodig(ruimteNa);
+    page.drawLine({ start: { x: MARGE, y }, end: { x: PAGINA_BREEDTE - MARGE, y }, thickness: dikte, color: kleur });
+    y -= ruimteNa;
   }
 
   function witruimte(px) {
     y -= px;
   }
 
-  return { regel, kop, witruimte, huidigePagina: () => page, huidigeY: () => y, setY: (v) => (y = v), nieuwePaginaIndienNodig };
+  return {
+    regel,
+    paragraaf,
+    kop,
+    lijn,
+    witruimte,
+    tekstOpY,
+    huidigePagina: () => page,
+    huidigeY: () => y,
+    setY: (v) => (y = v),
+    nieuwePaginaIndienNodig,
+    nieuwePagina,
+  };
 }
 
 function euro(bedrag) {
   return "€ " + Number(bedrag || 0).toFixed(2).replace(".", ",");
 }
 
+// Probeert het logo (data-URL) als PNG/JPEG in te bedden. SVG's en andere
+// formaten kan pdf-lib niet rasteren — dan wordt het logo gewoon overgeslagen,
+// de rest van de PDF blijft daarbij gewoon werken.
+async function embedLogo(doc, dataUrl) {
+  if (!dataUrl || typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/")) return null;
+  try {
+    const [header, base64] = dataUrl.split(",");
+    const bytes = Buffer.from(base64 || "", "base64");
+    if (header.includes("image/png")) return await doc.embedPng(bytes);
+    if (header.includes("image/jpeg") || header.includes("image/jpg")) return await doc.embedJpg(bytes);
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Tekent het logo rechtsboven, met de bovenkant op yBoven — zelfde begrenzing
+// als op het scherm (maxWidth 140, maxHeight 56, object-fit: contain).
+// Tekent het logo rechtsboven en geeft de getekende hoogte terug, zodat de
+// aanroeper de cursor (y) daarna kan verankeren tot onder het logo — anders
+// kan tekst er per ongeluk overheen komen bij een logo dat richting de 56pt-
+// maximumhoogte gaat.
+function tekenLogoRechtsboven(page, logo, yBoven) {
+  if (!logo) return 0;
+  const schaal = Math.min(140 / logo.width, 56 / logo.height, 1);
+  const breedte = logo.width * schaal;
+  const hoogte = logo.height * schaal;
+  page.drawImage(logo, { x: PAGINA_BREEDTE - MARGE - breedte, y: yBoven - hoogte, width: breedte, height: hoogte });
+  return hoogte;
+}
+
+// Hoeveel verticale ruimte een roadmap-faskaart nodig heeft, zodat twee kaarten
+// naast elkaar (2 koloms grid) op gelijke hoogte getekend kunnen worden.
+function berekenFaseHoogte(fase, fonts, breedteBinnenKaart) {
+  const { regular, bold } = fonts;
+  const PADDING = 12;
+  let hoogte = PADDING; // boven
+  hoogte += 10 + 6; // label
+  const titelRegels = verdeelInRegels(fase.titel || "", bold, 12.5, breedteBinnenKaart);
+  hoogte += titelRegels.length * 15 + 6;
+  const punten = (fase.puntenTekst || "").split("\n").map((p) => p.trim()).filter(Boolean);
+  if (punten.length > 0) {
+    punten.forEach((p) => {
+      hoogte += verdeelInRegels(p, regular, 10.5, breedteBinnenKaart - 12).length * 13.5;
+    });
+    hoogte += 8;
+  }
+  if (fase.resultaatTekst) {
+    const resultaatRegels = verdeelInRegels(fase.resultaatTekst, bold, 10.5, breedteBinnenKaart - 20);
+    hoogte += 10 + 11 + resultaatRegels.length * 13 + 8;
+  }
+  hoogte += PADDING; // onder
+  return hoogte;
+}
+
+function tekenFaseKaart(page, fase, fonts, x, yBoven, breedte, hoogte) {
+  const { regular, bold } = fonts;
+  const PADDING = 12;
+  page.drawRectangle({ x, y: yBoven - hoogte, width: breedte, height: hoogte, borderColor: KLEUR.blauw, borderWidth: 1.3 });
+
+  // Rondje met volgnummer/markering, met een lijntje ernaast — zoals op het scherm.
+  const cirkelY = yBoven + 15;
+  page.drawEllipse({ x: x + 15, y: cirkelY, xScale: 15, yScale: 15, color: KLEUR.blauw });
+  const markering = veiligeTekst(fase.markering ?? "", bold);
+  const markeringBreedte = bold.widthOfTextAtSize(markering, 10);
+  page.drawText(markering, { x: x + 15 - markeringBreedte / 2, y: cirkelY - 3.5, size: 10, font: bold, color: rgb(1, 1, 1) });
+  page.drawLine({ start: { x: x + 34, y: cirkelY }, end: { x: x + breedte, y: cirkelY }, thickness: 1.5, color: KLEUR.blauwLicht });
+
+  let yInhoud = yBoven - PADDING;
+  const breedteBinnen = breedte - PADDING * 2;
+  page.drawText(veiligeTekst((fase.label || "").toUpperCase(), bold), { x: x + PADDING, y: yInhoud, size: 9.5, font: bold, color: KLEUR.goud });
+  yInhoud -= 16;
+  verdeelInRegels(fase.titel || "", bold, 12.5, breedteBinnen).forEach((r) => {
+    page.drawText(r, { x: x + PADDING, y: yInhoud, size: 12.5, font: bold, color: KLEUR.primair });
+    yInhoud -= 15;
+  });
+  yInhoud -= 4;
+
+  const punten = (fase.puntenTekst || "").split("\n").map((p) => p.trim()).filter(Boolean);
+  punten.forEach((punt) => {
+    const regels = verdeelInRegels(punt, regular, 10.5, breedteBinnen - 12);
+    regels.forEach((r, i) => {
+      page.drawText(i === 0 ? "•" : "", { x: x + PADDING, y: yInhoud, size: 10.5, font: regular, color: KLEUR.secundair });
+      page.drawText(r, { x: x + PADDING + 12, y: yInhoud, size: 10.5, font: regular, color: KLEUR.secundair });
+      yInhoud -= 13.5;
+    });
+  });
+  if (punten.length > 0) yInhoud -= 6;
+
+  if (fase.resultaatTekst) {
+    const resultaatRegels = verdeelInRegels(fase.resultaatTekst, bold, 10.5, breedteBinnen - 20);
+    const vakHoogte = 10 + resultaatRegels.length * 13 + 8;
+    page.drawRectangle({ x: x + PADDING, y: yInhoud - vakHoogte, width: breedteBinnen - PADDING * 2 + 20, height: vakHoogte, color: KLEUR.blauwLicht });
+    page.drawText(veiligeTekst((fase.resultaatLabel || "Resultaat").toUpperCase(), bold), { x: x + PADDING + 10, y: yInhoud - 12, size: 8.5, font: bold, color: KLEUR.blauw });
+    let yResultaat = yInhoud - 25;
+    resultaatRegels.forEach((r) => {
+      page.drawText(r, { x: x + PADDING + 10, y: yResultaat, size: 10.5, font: bold, color: KLEUR.primair });
+      yResultaat -= 13;
+    });
+  }
+}
+
 async function genereerOffertePdf(record) {
-  const { doc, regular, bold } = await nieuwPdfDocument();
-  const schrijver = nieuwSchrijver(doc, regular, bold);
+  const { doc, fonts } = await nieuwPdfDocument();
+  const { regular, bold, serifBold } = fonts;
+  const s = nieuwSchrijver(doc, fonts);
   const data = record.data || {};
   const gekozenKlanten = data.gekozenKlanten || [];
   const regelsPerKlant = data.regelsPerKlant || {};
   const afzender = data.afzender || {};
+  const namens = data.namens || {};
+  const algemeneVoorwaarden = data.algemeneVoorwaarden || {};
+  const klantToelichtingen = data.klantToelichtingen || {};
+  const algemeneToelichting = data.algemeneToelichting || "";
+  const bijlageToelichtingen = data.bijlageToelichtingen || {};
+  const roadmap = data.roadmap;
+  const rechterRand = MARGE + KOLOM_BREEDTE;
 
-  schrijver.kop("Ondertekende offerte", 18);
-  schrijver.regel(`Aangemaakt: ${new Date(record.aangemaaktOp).toLocaleString("nl-NL")}`, { kleur: rgb(0.4, 0.42, 0.4) });
-  schrijver.witruimte(10);
+  const logo = await embedLogo(doc, data.logo);
 
+  // ------------------------------------------------------------------
+  // Eén pagina per klant (bij meerdere klanten op één offerte), met
+  // dezelfde inhoud/volgorde als offerte-print-gebied in App.jsx.
+  // ------------------------------------------------------------------
   gekozenKlanten.forEach((klant, idx) => {
+    if (idx > 0) s.nieuwePagina();
+
     const regels = regelsPerKlant[klant.id] || [];
-    const subtotaal = regels.reduce((s, r) => s + (r.subtotaal || 0), 0);
+    const subtotaal = regels.reduce((som, r) => som + (r.subtotaal || 0), 0);
     const btw = subtotaal * 0.21;
     const totaal = subtotaal + btw;
+    const groepen = ["eenmalig", "doorlopend"]
+      .map((cat) => ({ cat, items: regels.filter((r) => r.categorie === cat) }))
+      .filter((g) => g.items.length > 0);
 
-    schrijver.kop(gekozenKlanten.length > 1 ? `Klant ${idx + 1}: ${klant.naam}` : klant.naam, 13);
-    if (klant.contact) schrijver.regel(`Contactpersoon: ${klant.contact}`);
-    if (klant.email) schrijver.regel(`E-mail: ${klant.email}`);
-    schrijver.witruimte(6);
+    const koptekstBovenY = s.huidigeY();
+    if (gekozenKlanten.length > 1) {
+      s.regel(`OFFERTE ${idx + 1} VAN ${gekozenKlanten.length}`, { size: 10, font: bold, kleur: KLEUR.goud, ruimteNa: 26 });
+    }
+    s.regel("Offerte", { size: 25, font: serifBold, kleur: KLEUR.primair, ruimteNa: 22 });
+    const geldigheidTekst = afzender.geldigheid ? ` · Geldig ${afzender.geldigheid} dagen` : "";
+    s.regel(`Datum: ${new Date(record.aangemaaktOp).toLocaleDateString("nl-NL")}${geldigheidTekst}`, { size: 11, kleur: KLEUR.zwak, ruimteNa: 26 });
+    const logoHoogte1 = tekenLogoRechtsboven(s.huidigePagina(), logo, koptekstBovenY + 4);
+    if (logoHoogte1) s.setY(Math.min(s.huidigeY(), koptekstBovenY + 4 - logoHoogte1 - 14));
 
-    regels.forEach((r) => {
-      const prijsTekst = r.opAanvraag ? "op aanvraag" : r.opNacalculatie ? "nacalculatie" : euro(r.prijs);
-      const subtotaalTekst = r.opAanvraag || r.opNacalculatie ? "—" : euro(r.subtotaal);
-      schrijver.regel(`${r.naam}  —  ${r.aantal} ${r.eenheid}  —  ${prijsTekst}  —  ${subtotaalTekst}`, { size: 10 });
+    // Briefhoofd (afzender), rechts uitgelijnd.
+    const briefhoofdRegels = [
+      afzender.bedrijf,
+      afzender.adres,
+      [afzender.postcode, afzender.plaats].filter(Boolean).join(" "),
+      afzender.kvk ? `KvK ${afzender.kvk}` : null,
+    ].filter(Boolean);
+    if (briefhoofdRegels.length) {
+      let yBrief = s.huidigeY();
+      briefhoofdRegels.forEach((r, i) => {
+        s.tekstOpY(r, MARGE, yBrief, { size: 11, font: i === 0 ? bold : regular, kleur: i === 0 ? KLEUR.primair : KLEUR.secundair, uitlijning: "rechts", rechterX: rechterRand });
+        yBrief -= 15;
+      });
+      s.setY(yBrief - 12);
+    }
+
+    // Aan / Namens — twee kolommen.
+    const kolomRechtsX = MARGE + KOLOM_BREEDTE / 2 + 10;
+    const straatRegel = [klant.straat, `${klant.huisnummer || ""}${klant.huisnummertoevoeging || ""}`.trim()].filter(Boolean).join(" ");
+    const plaatsRegel = [klant.postcode, klant.plaats].filter(Boolean).join(" ");
+    const aanRegels = [klant.naam, klant.contact, straatRegel, plaatsRegel, klant.email].filter(Boolean);
+    const namensRegels = [namens.naam, namens.email && namens.email.toLowerCase() !== (namens.naam || "").toLowerCase() ? namens.email : null].filter(Boolean);
+
+    const startY = s.huidigeY();
+    s.tekstOpY("AAN", MARGE, startY, { size: 9.5, font: bold, kleur: KLEUR.zwak });
+    if (namensRegels.length) s.tekstOpY("NAMENS", kolomRechtsX, startY, { size: 9.5, font: bold, kleur: KLEUR.zwak });
+    let yLinks = startY - 17;
+    aanRegels.forEach((r, i) => {
+      s.tekstOpY(r, MARGE, yLinks, { size: i === 0 ? 12.5 : 11, font: i === 0 ? bold : regular, kleur: i === 0 ? KLEUR.primair : KLEUR.secundair });
+      yLinks -= 14.5;
     });
+    let yRechts = startY - 17;
+    namensRegels.forEach((r, i) => {
+      s.tekstOpY(r, kolomRechtsX, yRechts, { size: i === 0 ? 12.5 : 11, font: i === 0 ? bold : regular, kleur: i === 0 ? KLEUR.primair : KLEUR.secundair });
+      yRechts -= 14.5;
+    });
+    s.setY(Math.min(yLinks, yRechts) - 6);
+    s.lijn({ ruimteNa: 22 });
 
-    schrijver.witruimte(6);
-    schrijver.regel(`Subtotaal: ${euro(subtotaal)}`, { x: 350, ruimteNa: 13 });
-    schrijver.regel(`Btw (21%): ${euro(btw)}`, { x: 350, ruimteNa: 13 });
-    schrijver.regel(`Totaal: ${euro(totaal)}`, { x: 350, font: bold, ruimteNa: 20 });
-    schrijver.witruimte(10);
+    // Inleiding.
+    if ((afzender.inleiding || "").trim()) {
+      s.paragraaf(afzender.inleiding, { size: 11.5, kleur: KLEUR.primair, ruimteNa: 12 });
+    }
+
+    // "Speciaal voor {klant}"-vak.
+    const toelichtingKlant = (klantToelichtingen[klant.id] || "").trim();
+    if (toelichtingKlant) {
+      const lijnen = verdeelInRegels(toelichtingKlant, regular, 11, KOLOM_BREEDTE - 32);
+      const boxHoogte = 20 + lijnen.length * 15 + 12;
+      s.nieuwePaginaIndienNodig(boxHoogte + 14);
+      const boxBovenY = s.huidigeY();
+      s.huidigePagina().drawRectangle({ x: MARGE, y: boxBovenY - boxHoogte, width: KOLOM_BREEDTE, height: boxHoogte, color: KLEUR.blauwLicht });
+      s.tekstOpY(`Speciaal voor ${klant.naam}`, MARGE + 16, boxBovenY - 20, { size: 9.5, font: bold, kleur: KLEUR.blauw });
+      let yToe = boxBovenY - 36;
+      lijnen.forEach((l) => {
+        s.tekstOpY(l, MARGE + 16, yToe, { size: 11, kleur: KLEUR.primair });
+        yToe -= 15;
+      });
+      s.setY(boxBovenY - boxHoogte - 16);
+    }
+
+    // Dienstentabel.
+    const xSubtotaal = rechterRand;
+    const xPrijs = rechterRand - 95;
+    const xAantal = rechterRand - 180;
+    s.nieuwePaginaIndienNodig(40);
+    const kopY = s.huidigeY();
+    s.tekstOpY("DIENST", MARGE, kopY, { size: 9.5, font: bold, kleur: KLEUR.secundair });
+    s.tekstOpY("AANTAL", xAantal, kopY, { size: 9.5, font: bold, kleur: KLEUR.secundair, uitlijning: "rechts", rechterX: xAantal });
+    s.tekstOpY("PRIJS", xPrijs, kopY, { size: 9.5, font: bold, kleur: KLEUR.secundair, uitlijning: "rechts", rechterX: xPrijs });
+    s.tekstOpY("SUBTOTAAL", xSubtotaal, kopY, { size: 9.5, font: bold, kleur: KLEUR.secundair, uitlijning: "rechts", rechterX: xSubtotaal });
+    s.setY(kopY - 8);
+    s.lijn({ kleur: KLEUR.primair, dikte: 1.5, ruimteNa: 14 });
+
+    groepen.forEach((groep) => {
+      s.nieuwePaginaIndienNodig(24);
+      s.regel((CATEGORIE_LABELS_PDF[groep.cat] || groep.cat).toUpperCase(), { size: 10, font: bold, kleur: KLEUR.goud, ruimteNa: 18 });
+      groep.items.forEach((r) => {
+        // Dienstnaam mag omslaan (lange namen liepen anders door tot in de
+        // aantal-kolom) — de andere kolommen blijven op de eerste regel staan.
+        const naamBreedte = xAantal - MARGE - 20;
+        const naamRegels = verdeelInRegels(r.naam, bold, 12, naamBreedte);
+        const rijHoogte = Math.max(20, naamRegels.length * 15 + 5);
+        s.nieuwePaginaIndienNodig(rijHoogte);
+        const rijY = s.huidigeY();
+        naamRegels.forEach((regelTekst, i) => {
+          s.tekstOpY(regelTekst, MARGE, rijY - i * 15, { size: 12, font: bold, kleur: KLEUR.primair });
+        });
+        s.tekstOpY(`${r.aantal} ${r.eenheid || ""}`.trim(), xAantal, rijY, { size: 11.5, kleur: KLEUR.primair, uitlijning: "rechts", rechterX: xAantal });
+        const prijsTekst = r.opAanvraag ? "op aanvraag" : r.opNacalculatie ? "nacalculatie" : euro(r.prijs);
+        s.tekstOpY(prijsTekst, xPrijs, rijY, { size: 11.5, kleur: KLEUR.primair, uitlijning: "rechts", rechterX: xPrijs });
+        const subtotaalTekst = r.opAanvraag || r.opNacalculatie ? "—" : euro(r.subtotaal);
+        s.tekstOpY(subtotaalTekst, xSubtotaal, rijY, { size: 11.5, font: bold, kleur: KLEUR.primair, uitlijning: "rechts", rechterX: xSubtotaal });
+        s.setY(rijY - rijHoogte);
+        s.lijn({ kleur: KLEUR.rand, ruimteNa: 0 });
+      });
+    });
+    s.witruimte(8);
+
+    // Totalenblok, rechts uitgelijnd.
+    s.nieuwePaginaIndienNodig(70);
+    const totaalX = rechterRand;
+    let yTotaal = s.huidigeY();
+    s.tekstOpY("Subtotaal", totaalX - 150, yTotaal, { size: 11.5, kleur: KLEUR.secundair });
+    s.tekstOpY(euro(subtotaal), totaalX, yTotaal, { size: 11.5, kleur: KLEUR.primair, uitlijning: "rechts", rechterX: totaalX });
+    yTotaal -= 17;
+    s.tekstOpY("Btw (21%)", totaalX - 150, yTotaal, { size: 11.5, kleur: KLEUR.secundair });
+    s.tekstOpY(euro(btw), totaalX, yTotaal, { size: 11.5, kleur: KLEUR.primair, uitlijning: "rechts", rechterX: totaalX });
+    yTotaal -= 10;
+    s.setY(yTotaal);
+    s.lijn({ kleur: KLEUR.primair, dikte: 1.5, ruimteNa: 16 });
+    yTotaal = s.huidigeY() + 4;
+    s.tekstOpY("Totaal", totaalX - 150, yTotaal, { size: 13.5, font: bold, kleur: KLEUR.primair });
+    s.tekstOpY(euro(totaal), totaalX, yTotaal, { size: 13.5, font: bold, kleur: KLEUR.primair, uitlijning: "rechts", rechterX: totaalX });
+    s.witruimte(20);
+
+    // Algemene voorwaarden.
+    if (algemeneVoorwaarden.url) {
+      s.lijn({ ruimteNa: 16 });
+      const label = (algemeneVoorwaarden.titel || "algemene voorwaarden").toLowerCase();
+      const voor = "Op deze offerte zijn onze ";
+      const na = " van toepassing.";
+      s.nieuwePaginaIndienNodig(28);
+      const yLink = s.huidigeY();
+      let xLink = MARGE;
+      s.tekstOpY(voor, xLink, yLink, { size: 10, kleur: KLEUR.zwak });
+      xLink += regular.widthOfTextAtSize(voor, 10);
+      s.tekstOpY(label, xLink, yLink, { size: 10, kleur: KLEUR.blauw });
+      const labelBreedte = regular.widthOfTextAtSize(label, 10);
+      s.huidigePagina().drawLine({ start: { x: xLink, y: yLink - 1.5 }, end: { x: xLink + labelBreedte, y: yLink - 1.5 }, thickness: 0.6, color: KLEUR.blauw });
+      s.tekstOpY(na, xLink + labelBreedte, yLink, { size: 10, kleur: KLEUR.zwak });
+      s.setY(yLink - 13);
+      s.regel(algemeneVoorwaarden.url, { size: 8.5, kleur: KLEUR.zwak, ruimteNa: 4 });
+    }
   });
 
-  // Ondertekeningsbewijs
+  // ------------------------------------------------------------------
+  // Roadmap — eigen pagina, 2-koloms grid van faskaarten.
+  // ------------------------------------------------------------------
+  if (roadmap && (roadmap.fases || []).length > 0) {
+    s.nieuwePagina();
+    const kopY = s.huidigeY();
+    s.paragraaf(roadmap.titel || "Planning & aanpak", {
+      size: 20,
+      font: serifBold,
+      kleur: KLEUR.primair,
+      x: MARGE,
+      maxBreedte: logo ? KOLOM_BREEDTE - 160 : KOLOM_BREEDTE,
+      regelHoogte: 22,
+      ruimteNa: 6,
+    });
+    const logoHoogte2 = tekenLogoRechtsboven(s.huidigePagina(), logo, kopY + 4);
+    if (logoHoogte2) s.setY(Math.min(s.huidigeY(), kopY + 4 - logoHoogte2 - 14));
+
+    const kolomGap = 20;
+    const kolomBreedte = (KOLOM_BREEDTE - kolomGap) / 2;
+    const fases = roadmap.fases;
+    for (let i = 0; i < fases.length; i += 2) {
+      const rijFases = [fases[i], fases[i + 1]].filter(Boolean);
+      const hoogtes = rijFases.map((f) => berekenFaseHoogte(f, fonts, kolomBreedte - 28));
+      const rijHoogte = Math.max(...hoogtes) + 16; // + ruimte voor het rondje/lijntje bovenaan
+      s.nieuwePaginaIndienNodig(rijHoogte + 4);
+      const rijBovenY = s.huidigeY() - 15;
+      rijFases.forEach((fase, kol) => {
+        const x = MARGE + kol * (kolomBreedte + kolomGap);
+        tekenFaseKaart(s.huidigePagina(), fase, fonts, x, rijBovenY, kolomBreedte, hoogtes[kol]);
+      });
+      s.setY(rijBovenY - rijHoogte + 15);
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Bijlage — toelichting per onderdeel — eigen pagina.
+  // ------------------------------------------------------------------
+  const eersteRegelsLijst = Object.values(regelsPerKlant)[0] || [];
+  const heeftBijlageToelichting = eersteRegelsLijst.some((r) => (bijlageToelichtingen[r.id] || "").trim() !== "");
+  if (algemeneToelichting.trim() !== "" || heeftBijlageToelichting) {
+    s.nieuwePagina();
+    const kopY = s.huidigeY();
+    s.paragraaf("Bijlage — toelichting per onderdeel", {
+      size: 18,
+      font: serifBold,
+      kleur: KLEUR.primair,
+      x: MARGE,
+      maxBreedte: logo ? KOLOM_BREEDTE - 160 : KOLOM_BREEDTE,
+      regelHoogte: 22,
+      ruimteNa: 8,
+    });
+    const logoHoogte3 = tekenLogoRechtsboven(s.huidigePagina(), logo, kopY + 4);
+    if (logoHoogte3) s.setY(Math.min(s.huidigeY(), kopY + 4 - logoHoogte3 - 14));
+    s.regel("Deze toelichting geldt voor alle bovenstaande offertes.", { size: 10.5, kleur: KLEUR.zwak, ruimteNa: 24 });
+
+    if (algemeneToelichting.trim() !== "") {
+      s.regel("Algemeen", { size: 12.5, font: bold, kleur: KLEUR.primair, ruimteNa: 17 });
+      s.paragraaf(algemeneToelichting, { size: 11, kleur: KLEUR.secundair, ruimteNa: 12 });
+      s.lijn({ ruimteNa: 16 });
+    }
+    eersteRegelsLijst
+      .filter((r) => (bijlageToelichtingen[r.id] || "").trim() !== "")
+      .forEach((r) => {
+        s.regel(r.naam, { size: 12.5, font: bold, kleur: KLEUR.primair, ruimteNa: 17 });
+        s.paragraaf(bijlageToelichtingen[r.id], { size: 11, kleur: KLEUR.secundair, ruimteNa: 12 });
+        s.lijn({ ruimteNa: 16 });
+      });
+  }
+
+  // ------------------------------------------------------------------
+  // Ondertekeningsbewijs — eigen pagina, alleen als er al getekend/afgewezen is.
+  // ------------------------------------------------------------------
   const ondertekening = record.ondertekening;
   if (ondertekening) {
-    schrijver.kop("Ondertekening", 14);
-    schrijver.regel(`Status: ${ondertekening.akkoord ? "Akkoord — ondertekend" : "Niet akkoord — afgewezen"}`, { font: bold });
-    schrijver.regel(`Naam: ${ondertekening.naam}`);
-    schrijver.regel(`E-mailadres: ${ondertekening.email}`);
-    schrijver.regel(`IP-adres: ${ondertekening.ip}`);
-    schrijver.regel(`Tijdstip: ${new Date(ondertekening.op).toLocaleString("nl-NL")}`);
-    if (ondertekening.opmerking) schrijver.regel(`Opmerking: "${ondertekening.opmerking}"`);
+    s.nieuwePagina();
+    s.kop("Ondertekening", { size: 16, font: serifBold });
+    s.regel(`Status: ${ondertekening.akkoord ? "Akkoord — ondertekend" : "Niet akkoord — afgewezen"}`, {
+      font: bold,
+      kleur: ondertekening.akkoord ? KLEUR.blauw : KLEUR.fout,
+    });
+    s.regel(`Naam: ${ondertekening.naam}`, { kleur: KLEUR.secundair });
+    s.regel(`E-mailadres: ${ondertekening.email}`, { kleur: KLEUR.secundair });
+    s.regel(`IP-adres: ${ondertekening.ip}`, { kleur: KLEUR.secundair });
+    s.regel(`Tijdstip: ${new Date(ondertekening.op).toLocaleString("nl-NL")}`, { kleur: KLEUR.secundair });
+    if (ondertekening.opmerking) s.regel(`Opmerking: "${ondertekening.opmerking}"`, { kleur: KLEUR.secundair });
 
     if (ondertekening.handtekening && ondertekening.handtekening.startsWith("data:image/png")) {
       try {
@@ -160,17 +606,12 @@ async function genereerOffertePdf(record) {
         const png = await doc.embedPng(bytes);
         const breedte = 220;
         const hoogte = (png.height / png.width) * breedte;
-        schrijver.nieuwePaginaIndienNodig(hoogte + 30);
-        schrijver.witruimte(6);
-        schrijver.huidigePagina().drawImage(png, {
-          x: MARGE,
-          y: schrijver.huidigeY() - hoogte,
-          width: breedte,
-          height: hoogte,
-        });
-        schrijver.setY(schrijver.huidigeY() - hoogte - 10);
+        s.nieuwePaginaIndienNodig(hoogte + 30);
+        s.witruimte(6);
+        s.huidigePagina().drawImage(png, { x: MARGE, y: s.huidigeY() - hoogte, width: breedte, height: hoogte });
+        s.setY(s.huidigeY() - hoogte - 10);
       } catch (e) {
-        schrijver.regel("(handtekening kon niet worden weergegeven)", { kleur: rgb(0.6, 0.3, 0.2) });
+        s.regel("(handtekening kon niet worden weergegeven)", { kleur: KLEUR.fout });
       }
     }
   }
@@ -179,11 +620,11 @@ async function genereerOffertePdf(record) {
 }
 
 async function genereerLogPdf(record) {
-  const { doc, regular, bold } = await nieuwPdfDocument();
-  const schrijver = nieuwSchrijver(doc, regular, bold);
+  const { doc, fonts } = await nieuwPdfDocument();
+  const schrijver = nieuwSchrijver(doc, fonts);
 
-  schrijver.kop("Logboek — offerte", 16);
-  schrijver.regel(`Offerte-ID: ${record.id}`, { kleur: rgb(0.4, 0.42, 0.4) });
+  schrijver.kop("Logboek — offerte", { size: 16 });
+  schrijver.regel(`Offerte-ID: ${record.id}`, { kleur: KLEUR.zwak });
   schrijver.witruimte(10);
 
   const logboek = record.logboek || [];
