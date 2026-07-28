@@ -137,6 +137,16 @@ function nieuwId(prefix) {
   return `${prefix}-${willekeurigeUuid()}`;
 }
 
+// Haalt alleen de voornaam uit een volledige naam ("Jan de Vries" -> "Jan"), voor een
+// wat persoonlijkere aanhef in de mail dan de volledige voor- en achternaam. Bevat de
+// waarde geen spaties (bijv. al een voornaam, of een bedrijfsnaam), dan komt die
+// ongewijzigd terug.
+function voornaam(volledigeNaam) {
+  const naam = (volledigeNaam || "").trim();
+  if (!naam) return "";
+  return naam.split(/\s+/)[0];
+}
+
 const STANDAARD_ROADMAP = {
   titel: "90 dagen roadmap: Kennismaking → Inrichting → Borging",
   fases: [
@@ -504,6 +514,7 @@ async function offerteOpslaan(id, payload) {
       id,
       aangemaaktOp: bestaandRecord?.aangemaaktOp || nu,
       aangemaaktDoor: bestaandRecord?.aangemaaktDoor || payload.gebruikerNaam,
+      aangemaaktDoorEmail: bestaandRecord?.aangemaaktDoorEmail || payload.gebruikerEmail || "",
       gewijzigdOp: nu,
       gewijzigdDoor: payload.gebruikerNaam,
       klantNamen: payload.klantNamen !== undefined ? payload.klantNamen : bestaandRecord?.klantNamen || [],
@@ -834,6 +845,11 @@ export default function OffertetoolApp() {
   // (bij het afdrukken/PDF) wordt een volgende opslag van dezelfde offerte een update
   // van hetzelfde record ("laatst gewijzigd"), in plaats van een nieuwe offerte.
   const [huidigeOfferteId, setHuidigeOfferteId] = useState(null);
+  // offerteMaker: naam + e-mail van de oorspronkelijke maker van de op dit moment
+  // geopende offerte (voor de automatische cc bij het versturen van de tekenlink-mail —
+  // zie bepaalOfferteMaker()). Blijft de échte eerste maker, ook als een collega de
+  // offerte later opent/bewerkt.
+  const [offerteMaker, setOfferteMaker] = useState({ naam: "", email: "" });
   const [offerteOpslaanStatus, setOfferteOpslaanStatus] = useState("idle"); // idle | bezig | opgeslagen | fout
   // Status van de offerte die nu open staat (alleen relevant tijdens het bewerken/bekijken
   // van één offerte — het overzicht zelf houdt per rij zijn eigen status bij).
@@ -854,6 +870,9 @@ export default function OffertetoolApp() {
   // mailConceptOpenSleutel: welke groep op dit moment het bewerkscherm open heeft staan.
   const [mailConcepten, setMailConcepten] = useState({});
   const [mailConceptOpenSleutel, setMailConceptOpenSleutel] = useState(null);
+  // mailCcExtra: per groep klanten een optioneel extra e-mailadres om in cc te zetten,
+  // naast de automatische cc naar de maker van de offerte (zie bepaalOfferteMaker()).
+  const [mailCcExtra, setMailCcExtra] = useState({});
 
   async function laadOffertesLijst() {
     setOffertesLijstBezig(true);
@@ -904,6 +923,7 @@ export default function OffertetoolApp() {
       // zodat een volgende opslag niet per ongeluk die verwijderde offerte herschept.
       if (huidigeOfferteId && offertesSelectie.has(huidigeOfferteId)) {
         setHuidigeOfferteId(null);
+        setOfferteMaker({ naam: "", email: "" });
       }
       setOffertesSelectie(new Set());
       setOffertesBevestigenTonen(false);
@@ -957,9 +977,11 @@ export default function OffertetoolApp() {
         klantNamen: gekozenKlanten.map((k) => k.naam),
         klantGroepen: [...new Set(gekozenKlanten.map((k) => k.segment).filter(Boolean))],
         gebruikerNaam: huidigeGebruiker?.naam || "Onbekend",
+        gebruikerEmail: huidigeGebruiker?.email || "",
       });
       setHuidigeOfferteId(id);
       setHuidigeOfferteStatus(record?.status || OFFERTE_STATUS_STANDAARD);
+      setOfferteMaker({ naam: record?.aangemaaktDoor || "", email: record?.aangemaaktDoorEmail || "" });
       setOfferteOpslaanStatus("opgeslagen");
       return id;
     } catch (e) {
@@ -983,6 +1005,7 @@ export default function OffertetoolApp() {
       setRoadmapToevoegen(!!snap.roadmapToevoegen);
       setHuidigeOfferteId(id);
       setHuidigeOfferteStatus(record.status || OFFERTE_STATUS_STANDAARD);
+      setOfferteMaker({ naam: record.aangemaaktDoor || "", email: record.aangemaaktDoorEmail || "" });
       setOfferteOpslaanStatus("idle");
       setOfferteVraagStatusTonen(false);
       setStap("offerte");
@@ -1042,6 +1065,7 @@ export default function OffertetoolApp() {
     setKlantToelichtingen({});
     setRoadmapToevoegen(false);
     setHuidigeOfferteId(null);
+    setOfferteMaker({ naam: "", email: "" });
     setHuidigeOfferteStatus(OFFERTE_STATUS_STANDAARD);
     setOfferteOpslaanStatus("idle");
     setOfferteVraagStatusTonen(false);
@@ -1697,6 +1721,7 @@ export default function OffertetoolApp() {
     setAangepastePrijzen({});
     setUitgeschakeldVoorKlant({});
     setHuidigeOfferteId(null);
+    setOfferteMaker({ naam: "", email: "" });
     setHuidigeOfferteStatus(OFFERTE_STATUS_STANDAARD);
     setOfferteOpslaanStatus("idle");
     setOfferteVraagStatusTonen(false);
@@ -1863,6 +1888,16 @@ export default function OffertetoolApp() {
     return await slaOfferteOp();
   }
 
+  // De "maker" van de huidige offerte t.b.v. de automatische cc bij het versturen van de
+  // tekenlink-mail: de daadwerkelijke oorspronkelijke maker (uit het opgeslagen record —
+  // blijft dus dezelfde persoon ook als een collega de offerte nu heeft geopend), of, voor
+  // een gloednieuwe/nog niet opgeslagen offerte, de nu ingelogde gebruiker (die dat bij de
+  // eerste opslag alsnog wordt).
+  function bepaalOfferteMaker() {
+    if (offerteMaker.email) return offerteMaker;
+    return { naam: huidigeGebruiker?.naam || "", email: huidigeGebruiker?.email || "" };
+  }
+
   // Genereert (en slaat zo nodig eerst op) de publieke tekenlink, en kopieert 'm naar het
   // klembord. De link bevat geen Microsoft-login-vereiste — het offerte-ID zelf functioneert
   // als toegangssleutel, net zoals bij een gedeelde documentlink.
@@ -1890,7 +1925,7 @@ export default function OffertetoolApp() {
     const bedrijfsnamen = groep.map((k) => k.naam).join(" en ");
     const onderwerp = `Offerte ${afzender.bedrijf}`;
     const tekst = standaardMailtekst
-      .replaceAll("{contact}", eerste.contact || bedrijfsnamen || "")
+      .replaceAll("{contact}", voornaam(eerste.contact) || bedrijfsnamen || "")
       .replaceAll("{ondertekenaar}", huidigeGebruiker?.naam || "");
     setMailConcepten((prev) => ({ ...prev, [sleutel]: { onderwerp, tekst } }));
     setMailStatus((prev) => ({ ...prev, [sleutel]: undefined }));
@@ -1917,6 +1952,22 @@ export default function OffertetoolApp() {
     const link = `${window.location.origin}/tekenen/${id}`;
     const volledigeTekst = concept.tekst.replaceAll("{link}", link);
 
+    // Cc opbouwen: automatisch de maker van de offerte, plus (optioneel) het handmatig
+    // ingevulde extra adres — beide alleen als ze niet al gelijk zijn aan het "aan"-adres
+    // of aan elkaar, zodat niemand dubbel in de mail staat.
+    const ccLijst = [];
+    const alToegevoegd = new Set([email.trim().toLowerCase()]);
+    const makerEmail = bepaalOfferteMaker().email.trim();
+    if (makerEmail && !alToegevoegd.has(makerEmail.toLowerCase())) {
+      ccLijst.push(makerEmail);
+      alToegevoegd.add(makerEmail.toLowerCase());
+    }
+    const extraCc = (mailCcExtra[sleutel] || "").trim();
+    if (extraCc && !alToegevoegd.has(extraCc.toLowerCase())) {
+      ccLijst.push(extraCc);
+      alToegevoegd.add(extraCc.toLowerCase());
+    }
+
     setMailStatus((prev) => ({ ...prev, [sleutel]: { status: "bezig" } }));
     try {
       const res = await fetch("/api/verstuur-mail", {
@@ -1924,6 +1975,7 @@ export default function OffertetoolApp() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           naar: email.trim(),
+          cc: ccLijst,
           onderwerp: concept.onderwerp,
           tekst: volledigeTekst,
           offerteId: id,
@@ -2700,10 +2752,11 @@ export default function OffertetoolApp() {
                 onChange={(e) => setStandaardMailtekst(e.target.value)}
               />
               <p style={{ fontSize: 11.5, color: "#8A9089", marginTop: 6 }}>
-                Beschikbare plaatshouders: <code>{"{contact}"}</code> (contactpersoon),{" "}
-                <code>{"{link}"}</code> (de tekenlink), <code>{"{ondertekenaar}"}</code> (naam van
-                degene die verstuurt). Bij het versturen kun je de tekst per keer nog aanpassen —
-                dit is alleen het startpunt.
+                Beschikbare plaatshouders: <code>{"{contact}"}</code> (voornaam van de
+                contactpersoon), <code>{"{link}"}</code> (de tekenlink),{" "}
+                <code>{"{ondertekenaar}"}</code> (naam van degene die verstuurt). Bij het
+                versturen kun je de tekst per keer nog aanpassen — dit is alleen het
+                startpunt.
               </p>
               {standaardMailtekst !== STANDAARD_MAILTEKST_DEFAULT && (
                 <button
@@ -4362,6 +4415,28 @@ export default function OffertetoolApp() {
                               <p style={{ fontSize: 10.5, color: "#8A9089", marginTop: 4 }}>
                                 Laat <code>{"{link}"}</code> staan — die wordt bij het versturen automatisch de echte tekenlink.
                               </p>
+                              {(() => {
+                                const maker = bepaalOfferteMaker();
+                                return maker.email ? (
+                                  <p style={{ fontSize: 10.5, color: "#8A9089", marginTop: 0, marginBottom: 8 }}>
+                                    In cc: {maker.naam ? `${maker.naam} ` : ""}
+                                    ({maker.email})
+                                  </p>
+                                ) : null;
+                              })()}
+                              <label style={{ fontSize: 11, color: "#8A9089", display: "block", marginBottom: 3 }}>
+                                Extra cc (optioneel)
+                              </label>
+                              <input
+                                className="ot-input"
+                                type="email"
+                                style={{ marginBottom: 8 }}
+                                value={mailCcExtra[groep.sleutel] || ""}
+                                onChange={(e) =>
+                                  setMailCcExtra((prev) => ({ ...prev, [groep.sleutel]: e.target.value }))
+                                }
+                                placeholder="naam@voorbeeld.nl"
+                              />
                               <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                                 <button
                                   className="ot-btn-secondary"

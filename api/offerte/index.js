@@ -85,6 +85,7 @@ module.exports = async function (context, req) {
       const nu = new Date().toISOString();
       const invoer = req.body || {};
       const gebruikerNaam = invoer.gebruikerNaam || "Onbekend";
+      const gebruikerEmail = invoer.gebruikerEmail || "";
 
       // Bestaand record ophalen (indien aanwezig) zodat "aangemaakt op/door" niet
       // wordt overschreven bij een kleine wijziging — alleen "gewijzigd op/door"
@@ -106,6 +107,7 @@ module.exports = async function (context, req) {
         id,
         aangemaaktOp: bestaandRecord?.aangemaaktOp || nu,
         aangemaaktDoor: bestaandRecord?.aangemaaktDoor || gebruikerNaam,
+        aangemaaktDoorEmail: bestaandRecord?.aangemaaktDoorEmail || gebruikerEmail,
         gewijzigdOp: nu,
         gewijzigdDoor: gebruikerNaam,
         klantNamen: invoer.klantNamen !== undefined ? invoer.klantNamen : bestaandRecord?.klantNamen || [],

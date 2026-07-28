@@ -38,6 +38,11 @@ module.exports = async function (context, req) {
   const onderwerp = (invoer.onderwerp || "Offerte").trim();
   const tekst = (invoer.tekst || "").trim();
   const offerteId = (invoer.offerteId || "").trim();
+  // Cc: bijv. de maker van de offerte en/of een handmatig toegevoegd adres — optioneel,
+  // dus een lege/ontbrekende lijst is prima.
+  const cc = Array.isArray(invoer.cc)
+    ? invoer.cc.map((adres) => String(adres || "").trim()).filter(Boolean)
+    : [];
 
   if (!naar || !tekst) {
     context.res = {
@@ -61,6 +66,10 @@ module.exports = async function (context, req) {
       },
       saveToSentItems: true,
     };
+
+    if (cc.length > 0) {
+      bericht.message.ccRecipients = cc.map((adres) => ({ emailAddress: { address: adres } }));
+    }
 
     // De offerte-PDF als bijlage meesturen (zelfde generator/opmaak als de tekenlink en
     // "Afdrukken / opslaan als PDF") — puur een extra gemak naast de tekenlink die al in de
