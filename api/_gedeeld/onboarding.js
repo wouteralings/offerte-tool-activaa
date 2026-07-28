@@ -1,4 +1,4 @@
-const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
+const { PDFDocument, StandardFonts, rgb, PDFString } = require("pdf-lib");
 const { haalInstellingWaarde } = require("./instellingen-opslag");
 
 // ---------------------------------------------------------------------------
@@ -187,6 +187,27 @@ function nieuwSchrijver(doc, fonts) {
     page.drawText(inhoud, { x: tekenX, y: yPos, size, font, color: kleur });
   }
 
+  // Zelfde als tekstOpY, maar voegt daarnaast een ECHTE, aanklikbare link-annotatie toe
+  // (PDF-Annot van het type /Link met een /URI-actie) over de getekende tekst heen. Puur de
+  // tekst blauw/onderstreept tekenen (zoals tekstOpY dat doet) ZIET er alleen uit als een
+  // link — in een PDF-viewer is dat niet aanklikbaar, omdat pdf-lib geen automatische
+  // hyperlink-detectie op tekst doet. Geeft de getekende breedte terug (handig om de cursor
+  // ná deze tekst te verankeren).
+  function tekstOpYMetLink(tekst, url, x, yPos, { size = 10.5, font = regular, kleur = KLEUR.blauw } = {}) {
+    const inhoud = veiligeTekst(tekst, font);
+    page.drawText(inhoud, { x, y: yPos, size, font, color: kleur });
+    const breedte = font.widthOfTextAtSize(inhoud, size);
+    const linkAnnotatie = doc.context.obj({
+      Type: "Annot",
+      Subtype: "Link",
+      Rect: [x, yPos - 2, x + breedte, yPos + size],
+      Border: [0, 0, 0],
+      A: { Type: "Action", S: "URI", URI: PDFString.of(url) },
+    });
+    page.node.addAnnot(doc.context.register(linkAnnotatie));
+    return breedte;
+  }
+
   function paragraaf(tekst, { size = 12, font = regular, kleur = KLEUR.secundair, x = MARGE, maxBreedte, regelHoogte, ruimteNa = 0 } = {}) {
     if (!tekst) return;
     const breedte = maxBreedte ?? PAGINA_BREEDTE - x - MARGE;
@@ -220,6 +241,7 @@ function nieuwSchrijver(doc, fonts) {
     lijn,
     witruimte,
     tekstOpY,
+    tekstOpYMetLink,
     huidigePagina: () => page,
     huidigeY: () => y,
     setY: (v) => (y = v),
@@ -525,7 +547,8 @@ async function genereerOffertePdf(record) {
     s.tekstOpY(euro(totaal), totaalX, yTotaal, { size: 12.5, font: bold, kleur: KLEUR.primair, uitlijning: "rechts", rechterX: totaalX });
     s.witruimte(18);
 
-    // Algemene voorwaarden.
+    // Algemene voorwaarden — de titel/label is een ECHTE aanklikbare link (tekstOpYMetLink,
+    // een /Link-annotatie), niet alleen blauwe/onderstreepte tekst die er zo uitziet.
     if (algemeneVoorwaarden.url) {
       s.lijn({ ruimteNa: 15 });
       const label = (algemeneVoorwaarden.titel || "algemene voorwaarden").toLowerCase();
@@ -536,8 +559,7 @@ async function genereerOffertePdf(record) {
       let xLink = MARGE;
       s.tekstOpY(voor, xLink, yLink, { size: 9.5, kleur: KLEUR.zwak });
       xLink += regular.widthOfTextAtSize(voor, 9.5);
-      s.tekstOpY(label, xLink, yLink, { size: 9.5, kleur: KLEUR.blauw });
-      const labelBreedte = regular.widthOfTextAtSize(label, 9.5);
+      const labelBreedte = s.tekstOpYMetLink(label, algemeneVoorwaarden.url, xLink, yLink, { size: 9.5, kleur: KLEUR.blauw });
       s.huidigePagina().drawLine({ start: { x: xLink, y: yLink - 1.5 }, end: { x: xLink + labelBreedte, y: yLink - 1.5 }, thickness: 0.6, color: KLEUR.blauw });
       s.tekstOpY(na, xLink + labelBreedte, yLink, { size: 9.5, kleur: KLEUR.zwak });
       s.setY(yLink - 12);
@@ -846,7 +868,7 @@ async function genereerOpdrachtbevestigingPdf(record) {
     s.tekstOpY(euro(totaal), totaalX, yTotaal, { size: 12.5, font: bold, kleur: KLEUR.primair, uitlijning: "rechts", rechterX: totaalX });
     s.witruimte(18);
 
-    // Algemene voorwaarden.
+    // Algemene voorwaarden — echte aanklikbare link, zie toelichting bij de offerte hierboven.
     if (algemeneVoorwaarden.url) {
       s.lijn({ ruimteNa: 15 });
       const label = (algemeneVoorwaarden.titel || "algemene voorwaarden").toLowerCase();
@@ -857,8 +879,7 @@ async function genereerOpdrachtbevestigingPdf(record) {
       let xLink = MARGE;
       s.tekstOpY(voor, xLink, yLink, { size: 9.5, kleur: KLEUR.zwak });
       xLink += regular.widthOfTextAtSize(voor, 9.5);
-      s.tekstOpY(label, xLink, yLink, { size: 9.5, kleur: KLEUR.blauw });
-      const labelBreedte = regular.widthOfTextAtSize(label, 9.5);
+      const labelBreedte = s.tekstOpYMetLink(label, algemeneVoorwaarden.url, xLink, yLink, { size: 9.5, kleur: KLEUR.blauw });
       s.huidigePagina().drawLine({ start: { x: xLink, y: yLink - 1.5 }, end: { x: xLink + labelBreedte, y: yLink - 1.5 }, thickness: 0.6, color: KLEUR.blauw });
       s.tekstOpY(na, xLink + labelBreedte, yLink, { size: 9.5, kleur: KLEUR.zwak });
       s.setY(yLink - 12);
