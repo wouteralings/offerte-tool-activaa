@@ -2215,27 +2215,13 @@ export default function OffertetoolApp() {
             titel="Instellingen"
             toelichting="Alle beheerschermen van de offertetool zijn hier verzameld — zo kunnen we dit later eenvoudig per functie/rol afschermen."
           >
-            <div className="ot-card" style={{ padding: 20, marginBottom: 20 }}>
-              <label className="ot-label" style={{ marginBottom: 10, display: "block" }}>Overig beheer</label>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button className="ot-btn-secondary" onClick={openCatalogus}>
-                  <Layers size={15} />
-                  Diensten beheren
-                </button>
-                <button className="ot-btn-secondary" onClick={openTeksten}>
-                  <BookOpen size={15} />
-                  Teksten beheren
-                </button>
-                <button className="ot-btn-secondary" onClick={openVoorwaarden}>
-                  <FileText size={15} />
-                  Voorwaarden beheren
-                </button>
-                <button className="ot-btn-secondary" onClick={openRoadmap}>
-                  <Milestone size={15} />
-                  Roadmap beheren
-                </button>
-              </div>
-            </div>
+            <OverigBeheerBalk
+              actief={stap}
+              onCatalogus={openCatalogus}
+              onTeksten={openTeksten}
+              onVoorwaarden={openVoorwaarden}
+              onRoadmap={openRoadmap}
+            />
 
             <label className="ot-label" style={{ marginBottom: 2, display: "block", fontSize: 15, fontWeight: 700 }}>
               Wie schrijven we aan namens?
@@ -2416,6 +2402,14 @@ export default function OffertetoolApp() {
             titel="Dienstencatalogus beheren"
             toelichting="Optioneel: onderhoud hier alle eenmalige en doorlopende diensten met hun varianten en prijzen. U hoeft dit niet elke keer te doorlopen — wijzigingen gelden meteen voor nieuwe offertes."
           >
+            <OverigBeheerBalk
+              actief={stap}
+              onCatalogus={openCatalogus}
+              onTeksten={openTeksten}
+              onVoorwaarden={openVoorwaarden}
+              onRoadmap={openRoadmap}
+            />
+
             {["eenmalig", "doorlopend"].map((cat) => (
               <div key={cat}>
                 <div className="ot-cat-koptekst">
@@ -2599,6 +2593,14 @@ export default function OffertetoolApp() {
             titel="Standaardteksten beheren"
             toelichting="Leg hier standaardteksten vast voor de bijlage, net als bij de dienstencatalogus. Bij een nieuwe offerte worden lege velden automatisch met deze standaardtekst gevuld — u kunt ze per offerte nog altijd aanpassen."
           >
+            <OverigBeheerBalk
+              actief={stap}
+              onCatalogus={openCatalogus}
+              onTeksten={openTeksten}
+              onVoorwaarden={openVoorwaarden}
+              onRoadmap={openRoadmap}
+            />
+
             <div style={{ display: "grid", gap: 12 }}>
               <div className="ot-card" style={{ padding: 18 }}>
                 <label className="ot-label">Algemeen</label>
@@ -2680,6 +2682,14 @@ export default function OffertetoolApp() {
             titel="Algemene voorwaarden beheren"
             toelichting="Deze link verschijnt als klikbare verwijzing op elke offerte, bijv. 'Op deze offerte zijn onze algemene voorwaarden van toepassing.'"
           >
+            <OverigBeheerBalk
+              actief={stap}
+              onCatalogus={openCatalogus}
+              onTeksten={openTeksten}
+              onVoorwaarden={openVoorwaarden}
+              onRoadmap={openRoadmap}
+            />
+
             <div className="ot-card" style={{ padding: 18, display: "grid", gap: 14 }}>
               <div>
                 <label className="ot-label">Titel</label>
@@ -2719,6 +2729,14 @@ export default function OffertetoolApp() {
             titel="Roadmap beheren"
             toelichting="Stel hier een stappenplan/roadmap samen (bijv. week 1, dag 30, dag 60...). Bij een offerte kan deze per keer aan- of uitgezet worden — handig als niet elke offerte een roadmap nodig heeft."
           >
+            <OverigBeheerBalk
+              actief={stap}
+              onCatalogus={openCatalogus}
+              onTeksten={openTeksten}
+              onVoorwaarden={openVoorwaarden}
+              onRoadmap={openRoadmap}
+            />
+
             <div style={{ marginBottom: 14 }}>
               <label className="ot-label">Titel van de roadmap</label>
               <input
@@ -4426,6 +4444,43 @@ function StapWrapper({ titel, toelichting, children }) {
       <h2 className="offertetool-serif" style={{ fontSize: 22, marginBottom: 4 }}>{titel}</h2>
       <p style={{ fontSize: 13.5, color: "#5B6259", marginBottom: 22 }}>{toelichting}</p>
       {children}
+    </div>
+  );
+}
+
+// Snelle schakelbalk tussen de beheerschermen (Diensten/Teksten/Voorwaarden/
+// Roadmap beheren) — staat bovenaan op elk van deze schermen zelf (niet alleen
+// op het Instellingen-scherm), zodat je vanuit bijv. "Teksten beheren" direct
+// naar "Voorwaarden beheren" kunt switchen zonder eerst terug te gaan naar
+// Instellingen. Het scherm waar je al op staat wordt gemarkeerd en is niet
+// aanklikbaar.
+function OverigBeheerBalk({ actief, onCatalogus, onTeksten, onVoorwaarden, onRoadmap }) {
+  const items = [
+    { key: "catalogus", label: "Diensten beheren", icon: Layers, onClick: onCatalogus },
+    { key: "teksten", label: "Teksten beheren", icon: BookOpen, onClick: onTeksten },
+    { key: "voorwaarden", label: "Voorwaarden beheren", icon: FileText, onClick: onVoorwaarden },
+    { key: "roadmap", label: "Roadmap beheren", icon: Milestone, onClick: onRoadmap },
+  ];
+  return (
+    <div className="ot-card" style={{ padding: 20, marginBottom: 20 }}>
+      <label className="ot-label" style={{ marginBottom: 10, display: "block" }}>Overig beheer</label>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {items.map((item) => {
+          const Icon = item.icon;
+          const isActief = item.key === actief;
+          return (
+            <button
+              key={item.key}
+              className={isActief ? "ot-btn-primary" : "ot-btn-secondary"}
+              onClick={item.onClick}
+              disabled={isActief}
+            >
+              <Icon size={15} />
+              {item.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
