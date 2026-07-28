@@ -2424,8 +2424,9 @@ export default function OffertetoolApp() {
               <p style={{ fontSize: 12.5, color: "#8A9089", marginTop: 4, marginBottom: 10 }}>
                 Zodra een klant een offerte accepteert (ondertekent met akkoord), stuurt de tool een
                 POST-verzoek met de offertegegevens (klant, ondertekenaar, bedrag) naar deze URL — bijvoorbeeld
-                de trigger-URL van een Power Automate-flow "Wanneer een HTTP-aanvraag wordt ontvangen". Laat
-                leeg om dit uit te laten.
+                de trigger-URL van een Power Automate-flow "Wanneer een HTTP-aanvraag wordt ontvangen". Het
+                Dynamics-account-ID van de klant wordt daarbij ook als <code>?ID=</code>-parameter aan de URL
+                zelf toegevoegd (naast de offertegegevens in de body). Laat leeg om dit uit te laten.
               </p>
               <input
                 className="ot-input"

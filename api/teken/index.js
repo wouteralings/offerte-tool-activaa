@@ -72,6 +72,22 @@ function bouwWebhookPayload(record, tekenlink) {
   };
 }
 
+// Voegt een query-parameter toe aan de webhook-URL — via de URL-klasse i.p.v. losse
+// string-concatenatie, zodat "?" vs "&" altijd goed komt, ook als de ingestelde URL zelf al
+// eigen query-parameters heeft (zoals de sv/sig-parameters van een Power Automate/Logic
+// Apps-trigger-URL), en de waarde automatisch correct ge-encodeerd wordt.
+function voegQueryParamToe(url, naam, waarde) {
+  if (!waarde) return url;
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set(naam, waarde);
+    return parsed.toString();
+  } catch (e) {
+    // Ongeldige URL -> ongewijzigd laten, stuurWebhook faalt/logt dat dan zelf.
+    return url;
+  }
+}
+
 // Doet de daadwerkelijke POST naar de webhook-URL — met een timeout, zodat een trage of
 // onbereikbare Power Automate-flow de acceptatie van de klant niet blijft ophouden.
 async function stuurWebhook(url, payload, timeoutMs = 8000) {
@@ -99,7 +115,15 @@ async function stuurAcceptatieWebhook(record, tekenlink, contextLog) {
   if (!webhookUrl) return;
 
   const payload = bouwWebhookPayload(record, tekenlink);
-  const resultaat = await stuurWebhook(webhookUrl, payload);
+  // Naast de klantgegevens in de JSON-body ook het Dynamics-account-ID van de (eerste)
+  // klant als "ID"-query-parameter op de URL zelf — handig als de Power Automate-flow
+  // hem zo direct uit de trigger-URL wil lezen i.p.v. uit de body te parsen. Bij een
+  // offerte met meerdere klanten (zie "OFFERTE X VAN Y" op de PDF) is dit het account-ID
+  // van de eerst gekozen klant — dezelfde "eerste klant"-conventie als elders in deze
+  // Function (zie bekendeKlant hieronder).
+  const accountId = record.data?.gekozenKlanten?.[0]?.id || null;
+  const volledigeUrl = voegQueryParamToe(webhookUrl, "ID", accountId);
+  const resultaat = await stuurWebhook(volledigeUrl, payload);
   if (!resultaat.ok) {
     contextLog(`Power Automate-webhook gaf status ${resultaat.status} terug.`);
   } else {
@@ -307,3 +331,4 @@ module.exports = async function (context, req) {
 // extra properties daarop zijn daarvoor onzichtbaar/onschadelijk.
 module.exports.bouwWebhookPayload = bouwWebhookPayload;
 module.exports.stuurWebhook = stuurWebhook;
+module.exports.voegQueryParamToe = voegQueryParamToe;
