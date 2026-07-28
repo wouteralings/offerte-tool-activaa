@@ -326,7 +326,7 @@ async function opslagGet(sleutel) {
   }
 }
 
-async function opslagSet(sleutel, waarde) {
+async function opslagSet(sleutel, waarde, { keepalive = false } = {}) {
   if (typeof window !== "undefined" && window.storage) {
     try {
       await window.storage.set(sleutel, waarde, false);
@@ -340,6 +340,7 @@ async function opslagSet(sleutel, waarde) {
       method: "PUT",
       headers: { "Content-Type": "application/json", "X-Requested-With": "offertetool" },
       body: JSON.stringify({ value: waarde }),
+      keepalive, // bij een flush vlak vóór het sluiten van de pagina (zie opslagSetDebounced)
     });
     if (!res.ok) {
       const foutdata = await res.json().catch(() => null);
@@ -367,6 +368,52 @@ async function opslagDelete(sleutel) {
   } catch (e) {
     // niets opgeslagen om te verwijderen
   }
+}
+
+// Elke losse toetsaanslag in een instellingenveld (standaardteksten, dienstencatalogus,
+// afzendergegevens, enz.) zette voorheen via de "bewaar zodra er iets wijzigt"-useEffects
+// meteen een eigen PUT-verzoek naar /api/instellingen in gang. Bij vlot typen — of bij het
+// direct na elkaar aanmaken van iets nieuws (bijv. een nieuwe dienst) en daar meteen een
+// standaardtekst bij intypen — stonden zo meerdere verzoeken vóór dezelfde sleutel
+// tegelijk "in de lucht", zonder enige garantie dat ze in dezelfde volgorde aankomen als ze
+// verstuurd zijn. Komt een ouder verzoek toevallig als laatste binnen, dan overschrijft die
+// (last-write-wins in api/instellingen) een net getypte, nieuwere tekst weer met de oudere,
+// onvolledige inhoud — precies het "wordt niet opgeslagen"-gedrag. Deze helper wacht na de
+// laatste wijziging een kort moment (debounce) en annuleert een eerder geplande, nog niet
+// verstuurde opslag-actie voor dezelfde sleutel, zodat er nooit meer dan één verzoek per
+// sleutel tegelijk onderweg is en altijd de laatst getypte waarde wint.
+const opslagDebounceTimers = {};
+// Laatst bekende, nog niet daadwerkelijk verstuurde waarde per sleutel — alleen gebruikt om
+// bij het sluiten/verlaten van de pagina (zie flushOpslagDebounce hieronder) een nog
+// openstaande wijziging alsnog te versturen, zodat een toetsaanslag vlak vóór het dichtklikken
+// van het tabblad niet stilletjes verloren gaat door de debounce hierboven.
+const opslagDebouncePending = {};
+function opslagSetDebounced(sleutel, waarde, vertragingMs = 700) {
+  opslagDebouncePending[sleutel] = waarde;
+  if (opslagDebounceTimers[sleutel]) clearTimeout(opslagDebounceTimers[sleutel]);
+  opslagDebounceTimers[sleutel] = setTimeout(() => {
+    delete opslagDebounceTimers[sleutel];
+    delete opslagDebouncePending[sleutel];
+    opslagSet(sleutel, waarde).catch((e) => console.error("Opslaan mislukt:", e));
+  }, vertragingMs);
+}
+
+if (typeof window !== "undefined") {
+  const flushOpslagDebounce = () => {
+    Object.entries(opslagDebouncePending).forEach(([sleutel, waarde]) => {
+      if (opslagDebounceTimers[sleutel]) clearTimeout(opslagDebounceTimers[sleutel]);
+      delete opslagDebounceTimers[sleutel];
+      delete opslagDebouncePending[sleutel];
+      opslagSet(sleutel, waarde, { keepalive: true }).catch(() => {});
+    });
+  };
+  // "pagehide" vangt zowel het sluiten van het tabblad als wegnavigeren; "visibilitychange"
+  // erbij omdat mobiele browsers een achtergrondtabblad soms afsluiten zonder ooit nog
+  // "pagehide" te vuren.
+  window.addEventListener("pagehide", flushOpslagDebounce);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushOpslagDebounce();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -615,13 +662,7 @@ export default function OffertetoolApp() {
   // Afzendergegevens bewaren zodra er iets in wijzigt (pas nadat de eerste keer geladen is).
   useEffect(() => {
     if (!afzenderGeladen) return;
-    (async () => {
-      try {
-        await opslagSet("afzender", JSON.stringify(afzender));
-      } catch (e) {
-        console.error("Opslaan mislukt:", e); // wijzigingen blijven wel zichtbaar voor deze sessie
-      }
-    })();
+    opslagSetDebounced("afzender", JSON.stringify(afzender));
   }, [afzender, afzenderGeladen]);
 
   // "Ondertekenaar" (Namens) en het bijbehorende e-mailadres volgen automatisch de echt
@@ -1109,29 +1150,17 @@ export default function OffertetoolApp() {
   // Bijlage-teksten bewaren zodra er iets in wijzigt (pas nadat de eerste keer geladen is).
   useEffect(() => {
     if (!bijlageGeladen) return;
-    (async () => {
-      try {
-        await opslagSet("bijlage-algemeen", algemeneToelichting);
-      } catch (e) {}
-    })();
+    opslagSetDebounced("bijlage-algemeen", algemeneToelichting);
   }, [algemeneToelichting, bijlageGeladen]);
 
   useEffect(() => {
     if (!bijlageGeladen) return;
-    (async () => {
-      try {
-        await opslagSet("bijlage-per-dienst", JSON.stringify(bijlageToelichtingen));
-      } catch (e) {}
-    })();
+    opslagSetDebounced("bijlage-per-dienst", JSON.stringify(bijlageToelichtingen));
   }, [bijlageToelichtingen, bijlageGeladen]);
 
   useEffect(() => {
     if (!bijlageGeladen) return;
-    (async () => {
-      try {
-        await opslagSet("bijlage-per-klant", JSON.stringify(klantToelichtingen));
-      } catch (e) {}
-    })();
+    opslagSetDebounced("bijlage-per-klant", JSON.stringify(klantToelichtingen));
   }, [klantToelichtingen, bijlageGeladen]);
 
   // standaardTeksten: herbruikbare standaardteksten, net als de dienstencatalogus zelf te beheren
@@ -1173,7 +1202,7 @@ export default function OffertetoolApp() {
   // Standaard mailtekst bewaren zodra 'ie wijzigt (pas nadat de eerste keer geladen is).
   useEffect(() => {
     if (!mailtekstGeladen) return;
-    opslagSet("mailtekst", standaardMailtekst).catch((e) => console.error("Opslaan mislukt:", e));
+    opslagSetDebounced("mailtekst", standaardMailtekst);
   }, [standaardMailtekst, mailtekstGeladen]);
 
   // algemeneVoorwaarden: los te beheren, verschijnt als klikbare link op elke offerte
@@ -1209,13 +1238,7 @@ export default function OffertetoolApp() {
 
   useEffect(() => {
     if (!voorwaardenGeladen) return;
-    (async () => {
-      try {
-        await opslagSet("algemenevoorwaarden", JSON.stringify(algemeneVoorwaarden));
-      } catch (e) {
-        console.error("Opslaan mislukt:", e);
-      }
-    })();
+    opslagSetDebounced("algemenevoorwaarden", JSON.stringify(algemeneVoorwaarden));
   }, [algemeneVoorwaarden, voorwaardenGeladen]);
 
   // roadmap: beheerbare, in Azure opgeslagen roadmap (net als de voorwaarden).
@@ -1244,13 +1267,7 @@ export default function OffertetoolApp() {
 
   useEffect(() => {
     if (!roadmapGeladen) return;
-    (async () => {
-      try {
-        await opslagSet("roadmap", JSON.stringify(roadmap));
-      } catch (e) {
-        console.error("Opslaan mislukt:", e);
-      }
-    })();
+    opslagSetDebounced("roadmap", JSON.stringify(roadmap));
   }, [roadmap, roadmapGeladen]);
 
   function voegFaseToe() {
@@ -1302,13 +1319,7 @@ export default function OffertetoolApp() {
   // Dienstencatalogus bewaren zodra er iets in wijzigt (pas nadat de eerste keer geladen is).
   useEffect(() => {
     if (!catalogusGeladen) return;
-    (async () => {
-      try {
-        await opslagSet("dienstencatalogus", JSON.stringify(dienstenCatalogus));
-      } catch (e) {
-        console.error("Opslaan mislukt:", e); // wijzigingen blijven wel zichtbaar voor deze sessie
-      }
-    })();
+    opslagSetDebounced("dienstencatalogus", JSON.stringify(dienstenCatalogus));
   }, [dienstenCatalogus, catalogusGeladen]);
 
   // Standaardteksten laden uit persistente opslag.
@@ -1333,13 +1344,7 @@ export default function OffertetoolApp() {
   // Standaardteksten bewaren zodra er iets in wijzigt (pas nadat de eerste keer geladen is).
   useEffect(() => {
     if (!tekstenGeladen) return;
-    (async () => {
-      try {
-        await opslagSet("standaardteksten", JSON.stringify(standaardTeksten));
-      } catch (e) {
-        console.error("Opslaan mislukt:", e); // wijzigingen blijven wel zichtbaar voor deze sessie
-      }
-    })();
+    opslagSetDebounced("standaardteksten", JSON.stringify(standaardTeksten));
   }, [standaardTeksten, tekstenGeladen]);
 
   // Klanten ophalen bij de eigen Dynamics-koppeling (Azure Function op /api/klanten).
