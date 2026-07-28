@@ -1999,7 +1999,7 @@ export default function OffertetoolApp() {
       style={{
         fontFamily:
           "'Source Sans 3', 'Segoe UI', system-ui, -apple-system, sans-serif",
-        background: "#F5F6F4",
+        background: "#FFFFFF",
         color: "#1C2321",
         minHeight: "100%",
       }}
@@ -2101,7 +2101,7 @@ export default function OffertetoolApp() {
               )}
             </div>
             <div>
-              <div className="offertetool-serif" style={{ fontSize: 18, fontWeight: 600, lineHeight: 1.1 }}>
+              <div style={{ fontSize: 18, fontWeight: 600, lineHeight: 1.1 }}>
                 Offertetool
               </div>
               <div style={{ fontSize: 11.5, color: "#8A9089" }}>gekoppeld aan Microsoft Dynamics</div>
@@ -2255,7 +2255,7 @@ export default function OffertetoolApp() {
               >
                 <Building2 size={26} color="#1C5D8C" />
               </div>
-              <h1 className="offertetool-serif" style={{ fontSize: 22, marginBottom: 6 }}>
+              <h1 style={{ fontSize: 22, fontWeight: 600, marginBottom: 6 }}>
                 Welkom bij de offertetool
               </h1>
               <p style={{ fontSize: 13.5, color: "#5B6259", marginBottom: 26, lineHeight: 1.5 }}>
@@ -4566,7 +4566,7 @@ const stapKnopStyle = {
 function StapWrapper({ titel, toelichting, children }) {
   return (
     <div>
-      <h2 className="offertetool-serif" style={{ fontSize: 22, marginBottom: 4 }}>{titel}</h2>
+      <h2 style={{ fontSize: 22, fontWeight: 600, marginBottom: 4 }}>{titel}</h2>
       <p style={{ fontSize: 13.5, color: "#5B6259", marginBottom: 22 }}>{toelichting}</p>
       {children}
     </div>
