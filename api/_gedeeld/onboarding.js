@@ -1,4 +1,5 @@
 const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
+const { haalInstellingWaarde } = require("./instellingen-opslag");
 
 // ---------------------------------------------------------------------------
 // Authenticatie — zelfde app-registratie (DYNAMICS_CLIENT_ID) als de rest van de
@@ -659,12 +660,235 @@ async function genereerOffertePdf(record) {
   return doc.save();
 }
 
+// Tekent de verplichte + optionele paragrafen van een opdrachtbevestiging (titel + tekst
+// per paragraaf, in die volgorde) — gedeelde helper zodat genereerOpdrachtbevestigingPdf
+// dit niet twee keer hoeft te herhalen.
+function tekenParagrafen(s, fonts, paragrafen) {
+  const { bold } = fonts;
+  const alle = [...(paragrafen?.verplicht || []), ...(paragrafen?.optioneel || [])];
+  alle.forEach((p) => {
+    const titel = (p?.titel || "").trim();
+    const tekst = (p?.tekst || "").trim();
+    if (!titel && !tekst) return;
+    if (titel) s.regel(titel, { size: 11.5, font: bold, kleur: KLEUR.primair, ruimteNa: 14 });
+    if (tekst) s.paragraaf(tekst, { size: 10, kleur: KLEUR.secundair, ruimteNa: 14 });
+  });
+}
+
+// Zelfde opbouw/stijl als genereerOffertePdf (logo, briefhoofd, Aan/Namens, dienstentabel,
+// totalen, voorwaarden, ondertekeningsbewijs), met twee verschillen: de kop toont
+// "Opdrachtbevestiging" + het gekozen opdrachttype (NV COS), en direct na de inleiding
+// worden de verplichte + optionele paragrafen van dat type getekend — er is bewust geen
+// roadmap/bijlage-toelichting sectie, die horen alleen bij de offerte.
+async function genereerOpdrachtbevestigingPdf(record) {
+  const { doc, fonts } = await nieuwPdfDocument();
+  const { regular, bold, serifBold } = fonts;
+  const s = nieuwSchrijver(doc, fonts);
+  const data = record.data || {};
+  const gekozenKlanten = data.gekozenKlanten || [];
+  const regelsPerKlant = data.regelsPerKlant || {};
+  const afzender = data.afzender || {};
+  const namens = data.namens || {};
+  const algemeneVoorwaarden = data.algemeneVoorwaarden || {};
+  const paragrafen = data.paragrafen || { verplicht: [], optioneel: [] };
+  const opdrachttypeNaam = data.opdrachttypeNaam || record.opdrachttypeNaam || "";
+  const rechterRand = MARGE + KOLOM_BREEDTE;
+
+  const logo = await embedLogo(doc, data.logo);
+
+  gekozenKlanten.forEach((klant, idx) => {
+    if (idx > 0) s.nieuwePagina();
+
+    const regels = regelsPerKlant[klant.id] || [];
+    const subtotaal = regels.reduce((som, r) => som + (r.subtotaal || 0), 0);
+    const btw = subtotaal * 0.21;
+    const totaal = subtotaal + btw;
+    const groepen = ["eenmalig", "doorlopend"]
+      .map((cat) => ({ cat, items: regels.filter((r) => r.categorie === cat) }))
+      .filter((g) => g.items.length > 0);
+
+    const koptekstBovenY = s.huidigeY();
+    if (gekozenKlanten.length > 1) {
+      s.regel(`OPDRACHTBEVESTIGING ${idx + 1} VAN ${gekozenKlanten.length}`, { size: 9.5, font: bold, kleur: KLEUR.goud, ruimteNa: 24 });
+    }
+    s.regel("Opdrachtbevestiging", { size: 22, font: serifBold, kleur: KLEUR.primair, ruimteNa: opdrachttypeNaam ? 6 : 20 });
+    if (opdrachttypeNaam) {
+      s.regel(opdrachttypeNaam, { size: 11, font: bold, kleur: KLEUR.blauw, ruimteNa: 14 });
+    }
+    s.regel(`Datum: ${new Date(record.aangemaaktOp).toLocaleDateString("nl-NL")}`, { size: 10, kleur: KLEUR.zwak, ruimteNa: 24 });
+    const logoHoogte1 = tekenLogoRechtsboven(s.huidigePagina(), logo, koptekstBovenY + 4);
+    if (logoHoogte1) s.setY(Math.min(s.huidigeY(), koptekstBovenY + 4 - logoHoogte1 - 12));
+
+    // Briefhoofd (afzender), rechts uitgelijnd.
+    const briefhoofdRegels = [
+      afzender.bedrijf,
+      afzender.adres,
+      [afzender.postcode, afzender.plaats].filter(Boolean).join(" "),
+      afzender.kvk ? `KvK ${afzender.kvk}` : null,
+    ].filter(Boolean);
+    if (briefhoofdRegels.length) {
+      let yBrief = s.huidigeY();
+      briefhoofdRegels.forEach((r, i) => {
+        s.tekstOpY(r, MARGE, yBrief, { size: 10, font: i === 0 ? bold : regular, kleur: i === 0 ? KLEUR.primair : KLEUR.secundair, uitlijning: "rechts", rechterX: rechterRand });
+        yBrief -= 14;
+      });
+      s.setY(yBrief - 11);
+    }
+
+    // Aan / Namens — twee kolommen.
+    const kolomRechtsX = MARGE + KOLOM_BREEDTE / 2 + 10;
+    const straatRegel = [klant.straat, `${klant.huisnummer || ""}${klant.huisnummertoevoeging || ""}`.trim()].filter(Boolean).join(" ");
+    const plaatsRegel = [klant.postcode, klant.plaats].filter(Boolean).join(" ");
+    const aanRegels = [klant.naam, klant.contact, straatRegel, plaatsRegel, klant.email].filter(Boolean);
+    const namensRegels = [namens.naam, namens.email && namens.email.toLowerCase() !== (namens.naam || "").toLowerCase() ? namens.email : null].filter(Boolean);
+
+    const startY = s.huidigeY();
+    s.tekstOpY("AAN", MARGE, startY, { size: 9, font: bold, kleur: KLEUR.zwak });
+    if (namensRegels.length) s.tekstOpY("NAMENS", kolomRechtsX, startY, { size: 9, font: bold, kleur: KLEUR.zwak });
+    let yLinks = startY - 16;
+    aanRegels.forEach((r, i) => {
+      s.tekstOpY(r, MARGE, yLinks, { size: i === 0 ? 11.5 : 10, font: i === 0 ? bold : regular, kleur: i === 0 ? KLEUR.primair : KLEUR.secundair });
+      yLinks -= 13.5;
+    });
+    let yRechts = startY - 16;
+    namensRegels.forEach((r, i) => {
+      s.tekstOpY(r, kolomRechtsX, yRechts, { size: i === 0 ? 11.5 : 10, font: i === 0 ? bold : regular, kleur: i === 0 ? KLEUR.primair : KLEUR.secundair });
+      yRechts -= 13.5;
+    });
+    s.setY(Math.min(yLinks, yRechts) - 5);
+    s.lijn({ ruimteNa: 20 });
+
+    // Inleiding (zelfde afzender-inleiding als bij offerte).
+    if ((afzender.inleiding || "").trim()) {
+      s.paragraaf(afzender.inleiding, { size: 10.5, kleur: KLEUR.primair, ruimteNa: 11 });
+    }
+
+    // Verplichte + optionele paragrafen — de kern van de opdrachtbevestiging.
+    tekenParagrafen(s, fonts, paragrafen);
+    if ((paragrafen.verplicht || []).length || (paragrafen.optioneel || []).length) {
+      s.witruimte(4);
+    }
+
+    // Dienstentabel.
+    const xSubtotaal = rechterRand;
+    const xPrijs = rechterRand - 95;
+    const xAantal = rechterRand - 180;
+    s.nieuwePaginaIndienNodig(38);
+    const kopY = s.huidigeY();
+    s.tekstOpY("DIENST", MARGE, kopY, { size: 9, font: bold, kleur: KLEUR.secundair });
+    s.tekstOpY("AANTAL", xAantal, kopY, { size: 9, font: bold, kleur: KLEUR.secundair, uitlijning: "rechts", rechterX: xAantal });
+    s.tekstOpY("PRIJS", xPrijs, kopY, { size: 9, font: bold, kleur: KLEUR.secundair, uitlijning: "rechts", rechterX: xPrijs });
+    s.tekstOpY("SUBTOTAAL", xSubtotaal, kopY, { size: 9, font: bold, kleur: KLEUR.secundair, uitlijning: "rechts", rechterX: xSubtotaal });
+    s.setY(kopY - 7);
+    s.lijn({ kleur: KLEUR.primair, dikte: 1.5, ruimteNa: 13 });
+
+    groepen.forEach((groep) => {
+      s.nieuwePaginaIndienNodig(22);
+      s.regel((CATEGORIE_LABELS_PDF[groep.cat] || groep.cat).toUpperCase(), { size: 9.5, font: bold, kleur: KLEUR.goud, ruimteNa: 16 });
+      groep.items.forEach((r) => {
+        const aantalTekst = `${r.aantal} ${r.eenheid || ""}`.trim();
+        const aantalBreedte = regular.widthOfTextAtSize(aantalTekst, 10.5);
+        const naamBreedte = xAantal - MARGE - aantalBreedte - 24;
+        const naamRegels = verdeelInRegels(r.naam, bold, 11, naamBreedte);
+        const rijHoogte = Math.max(18, naamRegels.length * 14 + 5);
+        s.nieuwePaginaIndienNodig(rijHoogte);
+        const rijY = s.huidigeY();
+        naamRegels.forEach((regelTekst, i) => {
+          s.tekstOpY(regelTekst, MARGE, rijY - i * 14, { size: 11, font: bold, kleur: KLEUR.primair });
+        });
+        s.tekstOpY(aantalTekst, xAantal, rijY, { size: 10.5, kleur: KLEUR.primair, uitlijning: "rechts", rechterX: xAantal });
+        const prijsTekst = r.opAanvraag ? "op aanvraag" : r.opNacalculatie ? "nacalculatie" : euro(r.prijs);
+        s.tekstOpY(prijsTekst, xPrijs, rijY, { size: 10.5, kleur: KLEUR.primair, uitlijning: "rechts", rechterX: xPrijs });
+        const subtotaalTekst = r.opAanvraag || r.opNacalculatie ? "—" : euro(r.subtotaal);
+        s.tekstOpY(subtotaalTekst, xSubtotaal, rijY, { size: 10.5, font: bold, kleur: KLEUR.primair, uitlijning: "rechts", rechterX: xSubtotaal });
+        const laatsteBaseline = rijY - (naamRegels.length - 1) * 14;
+        s.setY(laatsteBaseline - 7);
+        s.lijn({ kleur: KLEUR.rand, ruimteNa: rijHoogte - (naamRegels.length - 1) * 14 - 7 });
+      });
+    });
+    s.witruimte(18);
+
+    // Totalenblok, rechts uitgelijnd.
+    s.nieuwePaginaIndienNodig(64);
+    const totaalX = rechterRand;
+    let yTotaal = s.huidigeY();
+    s.tekstOpY("Subtotaal", totaalX - 150, yTotaal, { size: 10.5, kleur: KLEUR.secundair });
+    s.tekstOpY(euro(subtotaal), totaalX, yTotaal, { size: 10.5, kleur: KLEUR.primair, uitlijning: "rechts", rechterX: totaalX });
+    yTotaal -= 16;
+    s.tekstOpY("Btw (21%)", totaalX - 150, yTotaal, { size: 10.5, kleur: KLEUR.secundair });
+    s.tekstOpY(euro(btw), totaalX, yTotaal, { size: 10.5, kleur: KLEUR.primair, uitlijning: "rechts", rechterX: totaalX });
+    yTotaal -= 9;
+    s.setY(yTotaal);
+    s.lijn({ kleur: KLEUR.primair, dikte: 1.5, ruimteNa: 15 });
+    yTotaal = s.huidigeY() + 4;
+    s.tekstOpY("Totaal", totaalX - 150, yTotaal, { size: 12.5, font: bold, kleur: KLEUR.primair });
+    s.tekstOpY(euro(totaal), totaalX, yTotaal, { size: 12.5, font: bold, kleur: KLEUR.primair, uitlijning: "rechts", rechterX: totaalX });
+    s.witruimte(18);
+
+    // Algemene voorwaarden.
+    if (algemeneVoorwaarden.url) {
+      s.lijn({ ruimteNa: 15 });
+      const label = (algemeneVoorwaarden.titel || "algemene voorwaarden").toLowerCase();
+      const voor = "Op deze opdrachtbevestiging zijn onze ";
+      const na = " van toepassing.";
+      s.nieuwePaginaIndienNodig(26);
+      const yLink = s.huidigeY();
+      let xLink = MARGE;
+      s.tekstOpY(voor, xLink, yLink, { size: 9.5, kleur: KLEUR.zwak });
+      xLink += regular.widthOfTextAtSize(voor, 9.5);
+      s.tekstOpY(label, xLink, yLink, { size: 9.5, kleur: KLEUR.blauw });
+      const labelBreedte = regular.widthOfTextAtSize(label, 9.5);
+      s.huidigePagina().drawLine({ start: { x: xLink, y: yLink - 1.5 }, end: { x: xLink + labelBreedte, y: yLink - 1.5 }, thickness: 0.6, color: KLEUR.blauw });
+      s.tekstOpY(na, xLink + labelBreedte, yLink, { size: 9.5, kleur: KLEUR.zwak });
+      s.setY(yLink - 12);
+    }
+  });
+
+  // ------------------------------------------------------------------
+  // Ondertekeningsbewijs — eigen pagina, alleen als er al getekend/afgewezen is.
+  // Zelfde opzet als bij de offerte.
+  // ------------------------------------------------------------------
+  const ondertekening = record.ondertekening;
+  if (ondertekening) {
+    s.nieuwePagina();
+    s.kop("Ondertekening", { size: 16, font: serifBold });
+    s.regel(`Status: ${ondertekening.akkoord ? "Akkoord — ondertekend" : "Niet akkoord — afgewezen"}`, {
+      font: bold,
+      kleur: ondertekening.akkoord ? KLEUR.blauw : KLEUR.fout,
+    });
+    s.regel(`Naam: ${ondertekening.naam}`, { kleur: KLEUR.secundair });
+    s.regel(`E-mailadres: ${ondertekening.email}`, { kleur: KLEUR.secundair });
+    s.regel(`IP-adres: ${ondertekening.ip}`, { kleur: KLEUR.secundair });
+    s.regel(`Tijdstip: ${new Date(ondertekening.op).toLocaleString("nl-NL")}`, { kleur: KLEUR.secundair });
+    if (ondertekening.opmerking) s.regel(`Opmerking: "${ondertekening.opmerking}"`, { kleur: KLEUR.secundair });
+
+    if (ondertekening.handtekening && ondertekening.handtekening.startsWith("data:image/png")) {
+      try {
+        const base64 = ondertekening.handtekening.split(",")[1];
+        const bytes = Buffer.from(base64, "base64");
+        const png = await doc.embedPng(bytes);
+        const breedte = 220;
+        const hoogte = (png.height / png.width) * breedte;
+        s.nieuwePaginaIndienNodig(hoogte + 30);
+        s.witruimte(6);
+        s.huidigePagina().drawImage(png, { x: MARGE, y: s.huidigeY() - hoogte, width: breedte, height: hoogte });
+        s.setY(s.huidigeY() - hoogte - 10);
+      } catch (e) {
+        s.regel("(handtekening kon niet worden weergegeven)", { kleur: KLEUR.fout });
+      }
+    }
+  }
+
+  return doc.save();
+}
+
 async function genereerLogPdf(record) {
   const { doc, fonts } = await nieuwPdfDocument();
   const schrijver = nieuwSchrijver(doc, fonts);
 
-  schrijver.kop("Logboek — offerte", { size: 16 });
-  schrijver.regel(`Offerte-ID: ${record.id}`, { kleur: KLEUR.zwak });
+  const documentLabel = record.soort === "opdrachtbevestiging" ? "opdrachtbevestiging" : "offerte";
+  schrijver.kop(`Logboek — ${documentLabel}`, { size: 16 });
+  schrijver.regel(`ID: ${record.id}`, { kleur: KLEUR.zwak });
   schrijver.witruimte(10);
 
   const logboek = record.logboek || [];
@@ -718,13 +942,15 @@ async function uploadNaarSharePoint({ sharepointUrl, bestandsnaam, bytes, conten
 }
 
 // ---------------------------------------------------------------------------
-// Onboarding-taak aanmaken in Dataverse.
+// Onboarding-taak aanmaken in Dataverse. onderwerp/categorie zijn instelbaar (zie
+// haalTaakInstellingen hieronder) — vroeger waren dit vaste waarden ("Onboarding
+// klant" / 8009 Backoffice), nu de standaardwaarden als er nog niets is ingesteld.
 // ---------------------------------------------------------------------------
-async function maakOnboardingTaak({ accountId, managerId, bestandsUrl, dataverseToken }) {
+async function maakOnboardingTaak({ accountId, managerId, bestandsUrl, dataverseToken, onderwerp, categorie }) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   const body = {
-    subject: "Onboarding klant",
-    cr283_soortactiecategorie: 8009, // Backoffice
+    subject: onderwerp || "Onboarding klant",
+    cr283_soortactiecategorie: categorie ?? 8009, // Backoffice
     cr283_urlbestand: bestandsUrl,
     "regardingobjectid_account@odata.bind": `/accounts(${accountId})`,
   };
@@ -743,26 +969,56 @@ async function maakOnboardingTaak({ accountId, managerId, bestandsUrl, dataverse
   if (!res.ok) throw new Error(`Taak aanmaken mislukt (${res.status}): ${await res.text()}`);
 }
 
+// Standaardwaarden zolang er nog niets is opgeslagen onder de betreffende
+// instellingensleutel — zie api/instellingen (TOEGESTANE_SLEUTELS) en de
+// Instellingen-schermen in de app ("Offerte — taak bij ondertekening" en
+// "Opdrachtbevestiging — taak bij ondertekening"). Offerte's taak staat altijd aan
+// (geen "actief"-schakelaar); opdrachtbevestiging's taak staat standaard uit.
+const TAAK_INSTELLINGEN_STANDAARD = {
+  offerte: { onderwerp: "Onboarding klant", categorie: 8009 },
+  opdrachtbevestiging: { actief: false, onderwerp: "Opdrachtbevestiging ondertekend", categorie: 8009 },
+};
+
+async function haalTaakInstellingen(soort) {
+  const sleutel = soort === "opdrachtbevestiging" ? "taak-instellingen-opdrachtbevestiging" : "taak-instellingen-offerte";
+  const standaard = TAAK_INSTELLINGEN_STANDAARD[soort] || TAAK_INSTELLINGEN_STANDAARD.offerte;
+  try {
+    const ruw = await haalInstellingWaarde(sleutel);
+    if (!ruw) return standaard;
+    const opgeslagen = JSON.parse(ruw);
+    return { ...standaard, ...opgeslagen };
+  } catch (e) {
+    return standaard;
+  }
+}
+
 // ---------------------------------------------------------------------------
-// Orkestratie: wordt aangeroepen ná een succesvolle ondertekening (akkoord).
+// Orkestratie: wordt aangeroepen ná een succesvolle ondertekening (akkoord), voor
+// zowel offerte als opdrachtbevestiging (onderscheiden via record.soort — ontbreekt
+// dat veld, dan gaat het om een offerte, voor compatibiliteit met bestaande records).
 // Faalt dit onderdeel, dan mag dat de ondertekening zelf niet ongedaan maken —
 // de aanroeper vangt fouten hiervan af en logt ze, zonder de respons te breken.
 // ---------------------------------------------------------------------------
 async function verwerkOndertekeningNaSignering(record, contextLog) {
+  const soort = record.soort === "opdrachtbevestiging" ? "opdrachtbevestiging" : "offerte";
+  const documentLabel = soort === "opdrachtbevestiging" ? "Opdrachtbevestiging" : "Offerte";
   const klanten = record.data?.gekozenKlanten || [];
   if (klanten.length === 0) {
-    contextLog("Onboarding-verwerking overgeslagen: geen klant op de offerte.");
+    contextLog(`Onboarding-verwerking overgeslagen: geen klant op de ${documentLabel.toLowerCase()}.`);
     return;
   }
-  // Bij meerdere klanten op één offerte: elk krijgt zijn eigen bestand + taak.
+  // Bij meerdere klanten op één document: elk krijgt zijn eigen bestand + (evt.) taak.
+  const taakInstellingen = await haalTaakInstellingen(soort);
   const dataverseToken = await haalDataverseToken();
   const graphToken = await haalGraphToken();
 
-  const offertePdfBytes = await genereerOffertePdf(record);
+  const documentPdfBytes = soort === "opdrachtbevestiging" ? await genereerOpdrachtbevestigingPdf(record) : await genereerOffertePdf(record);
   const logPdfBytes = await genereerLogPdf(record);
 
   const klantnaamVoorBestand = (naam) => naam.replace(/[\\/:*?"<>|]/g, "-").trim();
   const datumVoorBestand = new Date(record.aangemaaktOp).toISOString().slice(0, 10);
+  // Offerte's taak staat altijd aan; opdrachtbevestiging's taak alleen als expliciet aangezet.
+  const taakActief = soort === "offerte" || !!taakInstellingen.actief;
 
   for (const klant of klanten) {
     try {
@@ -773,11 +1029,11 @@ async function verwerkOndertekeningNaSignering(record, contextLog) {
         continue;
       }
 
-      const basisNaam = `Offerte - ${klantnaamVoorBestand(klant.naam)} - ${datumVoorBestand}`;
-      const offerteUrl = await uploadNaarSharePoint({
+      const basisNaam = `${documentLabel} - ${klantnaamVoorBestand(klant.naam)} - ${datumVoorBestand}`;
+      const documentUrl = await uploadNaarSharePoint({
         sharepointUrl,
         bestandsnaam: `${basisNaam}.pdf`,
-        bytes: offertePdfBytes,
+        bytes: documentPdfBytes,
         contentType: "application/pdf",
         graphToken,
       });
@@ -789,10 +1045,20 @@ async function verwerkOndertekeningNaSignering(record, contextLog) {
         graphToken,
       });
 
-      const managerId = account.cr283_Manager?.systemuserid || null;
-      await maakOnboardingTaak({ accountId: klant.id, managerId, bestandsUrl: offerteUrl, dataverseToken });
-
-      contextLog(`Klant ${klant.naam}: PDF + logbestand geüpload, taak aangemaakt.`);
+      if (taakActief) {
+        const managerId = account.cr283_Manager?.systemuserid || null;
+        await maakOnboardingTaak({
+          accountId: klant.id,
+          managerId,
+          bestandsUrl: documentUrl,
+          dataverseToken,
+          onderwerp: taakInstellingen.onderwerp,
+          categorie: taakInstellingen.categorie,
+        });
+        contextLog(`Klant ${klant.naam}: PDF + logbestand geüpload, taak aangemaakt.`);
+      } else {
+        contextLog(`Klant ${klant.naam}: PDF + logbestand geüpload (taak aanmaken staat uit).`);
+      }
     } catch (e) {
       contextLog(`Klant ${klant.naam}: onboarding-verwerking mislukt: ${e.message}`);
     }
@@ -802,6 +1068,7 @@ async function verwerkOndertekeningNaSignering(record, contextLog) {
 module.exports = {
   verwerkOndertekeningNaSignering,
   genereerOffertePdf,
+  genereerOpdrachtbevestigingPdf,
   genereerLogPdf,
   haalGraphToken,
   haalDataverseToken,

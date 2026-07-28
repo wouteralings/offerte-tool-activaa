@@ -1,23 +1,42 @@
 const { BlobServiceClient } = require("@azure/storage-blob");
-const { verwerkOndertekeningNaSignering, genereerOffertePdf } = require("../_gedeeld/onboarding");
+const { verwerkOndertekeningNaSignering, genereerOffertePdf, genereerOpdrachtbevestigingPdf } = require("../_gedeeld/onboarding");
 const { magDoor } = require("../_gedeeld/ratelimit");
 const { haalInstellingWaarde } = require("../_gedeeld/instellingen-opslag");
 
-// Zelfde container/blob-indeling als api/offerte, zodat dit gewoon dezelfde offerte-records
-// leest en bijwerkt — deze Function is puur een publiek, anoniem toegankelijk "loket" erbovenop.
-const CONTAINER_NAAM = "offertes";
+// Deze publieke, anoniem toegankelijke tekenpagina bedient zowel offertes als
+// opdrachtbevestigingen via dezelfde /tekenen/{id}-link — welke van de twee
+// containers het record bevat, bepaalt (samen met het opgeslagen "soort"-veld in
+// het record zelf) hoe er verder wordt afgehandeld (PDF-opmaak, webhook-sleutel,
+// taak-instellingen). Zo hoeft er geen aparte publieke route/config bij te komen.
+const CONTAINERS = { offerte: "offertes", opdrachtbevestiging: "opdrachtbevestigingen" };
 
-let cachedContainerClient = null;
+const cachedContainerClients = {};
 
-async function haalContainerClient() {
-  if (cachedContainerClient) return cachedContainerClient;
+async function haalContainerClient(soort) {
+  if (cachedContainerClients[soort]) return cachedContainerClients[soort];
   const connectionString = process.env.STORAGE_CONNECTION_STRING;
   if (!connectionString) throw new Error("MISSING_CONFIG");
   const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
-  const containerClient = blobServiceClient.getContainerClient(CONTAINER_NAAM);
+  const containerClient = blobServiceClient.getContainerClient(CONTAINERS[soort]);
   await containerClient.createIfNotExists();
-  cachedContainerClient = containerClient;
+  cachedContainerClients[soort] = containerClient;
   return containerClient;
+}
+
+// Zoekt het blob-record op in beide containers (eerst offertes, dan
+// opdrachtbevestigingen) — de ID zelf is een willekeurige UUID, dus een botsing
+// tussen beide containers is verwaarloosbaar. Geeft { containerClient, blobClient,
+// soort } terug van de container waar het gevonden is, of null als het nergens
+// bestaat.
+async function vindBlobClient(id) {
+  for (const soort of Object.keys(CONTAINERS)) {
+    const containerClient = await haalContainerClient(soort);
+    const blobClient = containerClient.getBlockBlobClient(veiligeBlobNaam(id));
+    if (await blobClient.exists()) {
+      return { containerClient, blobClient, soort };
+    }
+  }
+  return null;
 }
 
 async function streamNaarTekst(readableStream) {
@@ -48,6 +67,7 @@ function haalClientIp(req) {
 // pure functie (geen netwerk/opslag) zodat dit apart getest kan worden — de vorm van de
 // payload is de "publieke API" naar Power Automate toe, dus moet stabiel en voorspelbaar zijn.
 function bouwWebhookPayload(record, tekenlink) {
+  const soort = record.soort === "opdrachtbevestiging" ? "opdrachtbevestiging" : "offerte";
   const regelsPerKlant = record.data?.regelsPerKlant || {};
   const alleRegels = Object.values(regelsPerKlant).flat();
   const subtotaal = alleRegels.reduce((som, r) => som + (r.subtotaal || 0), 0);
@@ -55,8 +75,13 @@ function bouwWebhookPayload(record, tekenlink) {
   const afronden = (n) => Math.round(n * 100) / 100;
 
   return {
-    gebeurtenis: "offerte-geaccepteerd",
+    gebeurtenis: soort === "opdrachtbevestiging" ? "opdrachtbevestiging-geaccepteerd" : "offerte-geaccepteerd",
+    // offerteId blijft ongewijzigd voor bestaande Power Automate-flows die op dit veld
+    // matchen; documentId/soort zijn de nieuwe, generieke velden (ook gevuld bij offerte).
     offerteId: record.id,
+    documentId: record.id,
+    soort,
+    opdrachttypeNaam: soort === "opdrachtbevestiging" ? record.opdrachttypeNaam || record.data?.opdrachttypeNaam || null : undefined,
     tekenlink: tekenlink || null,
     klantNamen: record.klantNamen || [],
     klanten: (record.data?.gekozenKlanten || []).map((k) => ({ id: k.id, naam: k.naam, email: k.email || null })),
@@ -111,7 +136,10 @@ async function stuurWebhook(url, payload, timeoutMs = 8000) {
 // Geen URL ingesteld -> stilletjes niets doen. Mag de acceptatie zelf nooit laten mislukken;
 // de aanroeper vangt fouten hiervan af, net als bij verwerkOndertekeningNaSignering.
 async function stuurAcceptatieWebhook(record, tekenlink, contextLog) {
-  const webhookUrl = (await haalInstellingWaarde("webhook-acceptatie"))?.trim();
+  // Offerte en opdrachtbevestiging hebben elk hun eigen, los in/uit te zetten
+  // webhook-instelling (leeg = uit) — zie Instellingen in de app.
+  const sleutel = record.soort === "opdrachtbevestiging" ? "webhook-opdrachtbevestiging-acceptatie" : "webhook-acceptatie";
+  const webhookUrl = (await haalInstellingWaarde(sleutel))?.trim();
   if (!webhookUrl) return;
 
   const payload = bouwWebhookPayload(record, tekenlink);
@@ -149,18 +177,21 @@ module.exports = async function (context, req) {
   }
 
   try {
-    const containerClient = await haalContainerClient();
-    const blobClient = containerClient.getBlockBlobClient(veiligeBlobNaam(id));
-
-    const bestaat = await blobClient.exists();
-    if (!bestaat) {
-      context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Offerte niet gevonden." } };
+    const gevonden = await vindBlobClient(id);
+    if (!gevonden) {
+      context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Offerte of opdrachtbevestiging niet gevonden." } };
       return;
     }
+    const { blobClient, soort } = gevonden;
 
     const downloadResponse = await blobClient.download();
     const tekst = await streamNaarTekst(downloadResponse.readableStreamBody);
     const record = JSON.parse(tekst);
+    // Oudere offerte-records hebben nog geen "soort"-veld — welke container het record
+    // bevatte is dan leidend, zodat downstream-functies (webhook, PDF, taak) altijd
+    // consistent kunnen beslissen op record.soort.
+    record.soort = record.soort || soort;
+    const documentLabel = soort === "opdrachtbevestiging" ? "Opdrachtbevestiging" : "Offerte";
     const nu = new Date().toISOString();
     const ip = ipVoorLimiet;
 
@@ -181,15 +212,15 @@ module.exports = async function (context, req) {
       // ondertekening (zonder handtekeningblok, dat verschijnt vanzelf zodra die er is).
       if (req.query?.formaat === "pdf") {
         try {
-          const pdfBytes = await genereerOffertePdf(record);
-          const klantnaam = (record.klantNamen || [])[0] || "offerte";
+          const pdfBytes = soort === "opdrachtbevestiging" ? await genereerOpdrachtbevestigingPdf(record) : await genereerOffertePdf(record);
+          const klantnaam = (record.klantNamen || [])[0] || documentLabel.toLowerCase();
           const veiligeNaam = klantnaam.replace(/[\\/:*?"<>|]/g, "-").trim();
           context.res = {
             status: 200,
             isRaw: true,
             headers: {
               "Content-Type": "application/pdf",
-              "Content-Disposition": `attachment; filename="Offerte - ${veiligeNaam}.pdf"`,
+              "Content-Disposition": `attachment; filename="${documentLabel} - ${veiligeNaam}.pdf"`,
             },
             body: Buffer.from(pdfBytes),
           };
@@ -208,7 +239,9 @@ module.exports = async function (context, req) {
         headers: { "Content-Type": "application/json" },
         body: {
           id: record.id,
+          soort,
           klantNamen: record.klantNamen || [],
+          opdrachttypeNaam: record.opdrachttypeNaam || record.data?.opdrachttypeNaam || null,
           data: record.data || {},
           status: record.status || "verzonden",
           ondertekening: record.ondertekening || null,
@@ -225,7 +258,7 @@ module.exports = async function (context, req) {
           status: 409,
           headers: { "Content-Type": "application/json" },
           body: {
-            error: "Deze offerte is al eerder ondertekend of afgewezen.",
+            error: `Deze ${documentLabel.toLowerCase()} is al eerder ondertekend of afgewezen.`,
             ondertekening: record.ondertekening,
             status: record.status,
           },

@@ -79,7 +79,7 @@ export default function TekenPagina({ id }) {
       try {
         const res = await fetch(`/api/teken/${encodeURIComponent(id)}`);
         if (!res.ok) {
-          setFout(res.status === 404 ? "Deze offerte kon niet worden gevonden." : "Er ging iets mis bij het laden.");
+          setFout(res.status === 404 ? "Dit document kon niet worden gevonden." : "Er ging iets mis bij het laden.");
           return;
         }
         const data = await res.json();
@@ -182,6 +182,8 @@ export default function TekenPagina({ id }) {
   // Al eerder ondertekend/afgewezen — of net nu ondertekend.
   const definitieveOndertekening = resultaat || record?.ondertekening;
 
+  const isOpdrachtbevestiging = record?.soort === "opdrachtbevestiging";
+  const documentLabel = isOpdrachtbevestiging ? "Opdrachtbevestiging" : "Offerte";
   const klantNamen = record?.klantNamen?.length ? record.klantNamen.join(", ") : "";
   const regelsPerKlant = record?.data?.regelsPerKlant || {};
   const gekozenKlanten = record?.data?.gekozenKlanten || [];
@@ -193,6 +195,8 @@ export default function TekenPagina({ id }) {
   const algemeneVoorwaarden = record?.data?.algemeneVoorwaarden || null;
   const logo = record?.data?.logo || ACTIVAA_LOGO;
   const namens = record?.data?.namens || null;
+  const opdrachttypeNaam = record?.opdrachttypeNaam || record?.data?.opdrachttypeNaam || "";
+  const paragrafen = record?.data?.paragrafen || { verplicht: [], optioneel: [] };
 
   const koptekstMetLogo = (titel) => (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
@@ -210,7 +214,7 @@ export default function TekenPagina({ id }) {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `Offerte - ${(record?.klantNamen?.[0] || "offerte")}.pdf`;
+      link.download = `${documentLabel} - ${(record?.klantNamen?.[0] || documentLabel.toLowerCase())}.pdf`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -240,9 +244,12 @@ export default function TekenPagina({ id }) {
               <img src={logo} alt="Logo" style={{ height: 40, width: "auto" }} />
               <div>
                 <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: ".05em", color: "#8A9089", fontWeight: 700 }}>
-                  Offerte ter ondertekening
+                  {documentLabel} ter ondertekening
                 </div>
                 {klantNamen && <div style={{ fontSize: 15, fontWeight: 700 }}>{klantNamen}</div>}
+                {isOpdrachtbevestiging && opdrachttypeNaam && (
+                  <div style={{ fontSize: 12, color: "#1C5D8C", fontWeight: 600, marginTop: 1 }}>{opdrachttypeNaam}</div>
+                )}
               </div>
             </div>
             <button
@@ -284,7 +291,7 @@ export default function TekenPagina({ id }) {
               <div key={klant.id} style={{ marginBottom: 36, paddingBottom: 28, borderBottom: idx < gekozenKlanten.length - 1 ? "2px dashed #E2E4DF" : "none" }}>
                 {gekozenKlanten.length > 1 && (
                   <div style={{ fontSize: 11, color: "#B98237", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 8 }}>
-                    Offerte {idx + 1} van {gekozenKlanten.length}
+                    {documentLabel} {idx + 1} van {gekozenKlanten.length}
                   </div>
                 )}
                 {afzender && (
@@ -328,6 +335,21 @@ export default function TekenPagina({ id }) {
                     </div>
                   </div>
                 )}
+
+                {isOpdrachtbevestiging &&
+                  [...(paragrafen.verplicht || []), ...(paragrafen.optioneel || [])].map(
+                    (p) =>
+                      (p.titel || p.tekst) && (
+                        <div key={p.id} style={{ marginBottom: 18 }}>
+                          {p.titel && <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 4 }}>{p.titel}</div>}
+                          {p.tekst && (
+                            <p style={{ fontSize: 13, color: "#3A4038", lineHeight: 1.6, margin: 0, whiteSpace: "pre-wrap" }}>
+                              {p.tekst}
+                            </p>
+                          )}
+                        </div>
+                      )
+                  )}
 
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
@@ -381,7 +403,7 @@ export default function TekenPagina({ id }) {
 
                 {algemeneVoorwaarden?.url && (
                   <p style={{ fontSize: 11, color: "#8A9089", marginTop: 20 }}>
-                    Op deze offerte zijn onze{" "}
+                    Op deze {documentLabel.toLowerCase()} zijn onze{" "}
                     <a href={algemeneVoorwaarden.url} target="_blank" rel="noreferrer" style={{ color: "#1C5D8C" }}>
                       {(algemeneVoorwaarden.titel || "algemene voorwaarden").toLowerCase()}
                     </a>{" "}
@@ -467,8 +489,8 @@ export default function TekenPagina({ id }) {
               <div style={{ fontSize: 13.5 }}>
                 <strong>
                   {definitieveOndertekening.akkoord
-                    ? "Deze offerte is ondertekend."
-                    : "Deze offerte is afgewezen."}
+                    ? `Deze ${documentLabel.toLowerCase()} is ondertekend.`
+                    : `Deze ${documentLabel.toLowerCase()} is afgewezen.`}
                 </strong>
                 <div style={{ marginTop: 4, color: "#5B6259" }}>
                   Door {definitieveOndertekening.naam} ({definitieveOndertekening.email})<br />

@@ -54,6 +54,14 @@ const TOEGESTANE_SLEUTELS = new Set([
   "dienstencatalogus",
   "standaardteksten",
   "webhook-acceptatie",
+  // Opdrachtbevestiging: zelf te beheren opdrachttypes (NV COS) + hun verplichte/optionele
+  // standaardparagrafen, en de instellingen voor de taak/webhook die bij ondertekening
+  // horen — los van de gelijknamige offerte-instellingen hieronder.
+  "opdrachttypes",
+  "opdrachtbevestiging-teksten",
+  "webhook-opdrachtbevestiging-acceptatie",
+  "taak-instellingen-offerte",
+  "taak-instellingen-opdrachtbevestiging",
 ]);
 
 module.exports = async function (context, req) {

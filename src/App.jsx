@@ -37,6 +37,7 @@ import {
   Mail,
   ExternalLink,
   Zap,
+  FileSignature,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -112,6 +113,55 @@ export const OFFERTE_STATUSSEN = [
 export function offerteStatusInfo(key) {
   return OFFERTE_STATUSSEN.find((s) => s.key === key) || OFFERTE_STATUSSEN[0];
 }
+
+// Bekende waarden van het Dynamics-optionset "cr283_soortactiecategorie", gebruikt bij het
+// aanmaken van een taak na ondertekening (zie Instellingen — taak bij ondertekening, voor
+// zowel offerte als opdrachtbevestiging). Dit is niet per se een uitputtende lijst — het zijn
+// de codes die tot nu toe in de koppeling zijn tegengekomen; "Andere code…" laat een vrij
+// numeriek veld zien voor codes die hier nog niet in staan.
+export const TAAK_CATEGORIE_OPTIES = [
+  { code: 8009, label: "Backoffice" },
+  { code: 8004, label: "Controleren" },
+  { code: 8006, label: "In afwachting reactie cliënt" },
+  { code: 8017, label: "SignNow" },
+];
+
+// Standaardwaarden voor de taak-instellingen (Instellingen > taak bij ondertekening) —
+// module-scope (niet per render opnieuw aangemaakt) zodat de load-useEffects hieronder
+// hier veilig naar kunnen verwijzen zonder een exhaustive-deps-waarschuwing.
+const TAAK_INSTELLINGEN_OFFERTE_DEFAULT = { onderwerp: "Onboarding klant", categorie: 8009 };
+const TAAK_INSTELLINGEN_OPDRACHTBEVESTIGING_DEFAULT = { actief: false, onderwerp: "Opdrachtbevestiging ondertekend", categorie: 8009 };
+
+// Standaard opdrachttypes (NV COS) — zelf te beheren/uit te breiden via "Opdrachtbevestiging-
+// teksten beheren", dit is alleen de startset. De daadwerkelijke verplichte/optionele
+// paragraafteksten worden bewust NIET hier voorgevuld (geen verzonnen NV COS-juridische tekst)
+// — zie INITIAL_OPDRACHTBEVESTIGING_TEKSTEN: alleen de paragraaftitels staan al klaar, de tekst
+// zelf vult de gebruiker zelf in via het beheerscherm.
+const INITIAL_OPDRACHTTYPES = [
+  { id: "type-samenstelling", naam: "Samenstellingsopdracht — NV COS 4410" },
+  { id: "type-beoordeling", naam: "Beoordelingsopdracht — NV COS 2400" },
+  { id: "type-overig", naam: "Overige / adviesopdracht" },
+];
+
+const INITIAL_OPDRACHTBEVESTIGING_TEKSTEN = {
+  "type-samenstelling": {
+    verplicht: [
+      { id: "par-samenstelling-1", titel: "Aard en beperkingen van de opdracht", tekst: "" },
+      { id: "par-samenstelling-2", titel: "Verantwoordelijkheden van het bestuur", tekst: "" },
+      { id: "par-samenstelling-3", titel: "Verantwoordelijkheden van de accountant", tekst: "" },
+    ],
+    optioneel: [],
+  },
+  "type-beoordeling": {
+    verplicht: [
+      { id: "par-beoordeling-1", titel: "Aard en beperkingen van de opdracht", tekst: "" },
+      { id: "par-beoordeling-2", titel: "Verantwoordelijkheden van het bestuur", tekst: "" },
+      { id: "par-beoordeling-3", titel: "Verantwoordelijkheden van de accountant", tekst: "" },
+    ],
+    optioneel: [],
+  },
+  "type-overig": { verplicht: [], optioneel: [] },
+};
 
 // Genereert een cryptografisch willekeurige ID (UUID v4). Belangrijk: het ID van een offerte
 // is tevens de enige "toegangssleutel" voor de publieke, niet-ingelogde tekenlink
@@ -282,6 +332,11 @@ const STAPPEN = [
   { key: "prijzen", label: "Prijzen", icon: Euro },
   { key: "bijlage", label: "Bijlage", icon: PenLine },
   { key: "offerte", label: "Offerte", icon: FileText },
+  // Opdrachtbevestiging staat bewust als los, altijd aanklikbaar tabblad naast Offerte (niet
+  // erna in de volgorde) — beide gebruiken dezelfde Klant/Diensten/Prijzen-selectie hierboven,
+  // je kunt dus uit één selectie zowel een offerte als een opdrachtbevestiging maken, of alleen
+  // een opdrachtbevestiging zonder ooit een offerte te maken.
+  { key: "opdrachtbevestiging", label: "Opdrachtbevestiging", icon: FileSignature },
 ];
 
 export function currency(n) {
@@ -558,6 +613,148 @@ async function offertesVerwijderen(ids) {
   await Promise.all(
     ids.map((id) =>
       fetch(`/api/offerte/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        headers: { "X-Requested-With": "offertetool" },
+      }).catch(() => null)
+    )
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Opdrachtbevestigingen bewaren/opzoeken/verwijderen — exacte kopie van de
+// offerte-opslagfuncties hierboven, maar in een eigen "namespace" (sleutel-prefix,
+// eigen index, eigen /api/opdrachtbevestiging(en)-endpoints) zodat opdrachtbevestigingen
+// nooit door elkaar lopen met offertes, ook al kunnen ze uit dezelfde klant-/
+// dienstenselectie ontstaan.
+// ---------------------------------------------------------------------------
+function opdrachtbevestigingSleutel(id) {
+  return `opdrachtbevestiging:${id}`;
+}
+
+async function opdrachtbevestigingenIndexOphalen() {
+  try {
+    const r = await window.storage.get("opdrachtbevestigingen-index", true);
+    return r?.value ? JSON.parse(r.value) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+async function opdrachtbevestigingenLijstOphalen() {
+  if (typeof window !== "undefined" && window.storage) {
+    const ids = await opdrachtbevestigingenIndexOphalen();
+    const records = [];
+    for (const id of ids) {
+      try {
+        const r = await window.storage.get(opdrachtbevestigingSleutel(id), true);
+        if (r?.value) records.push(JSON.parse(r.value));
+      } catch (e) {
+        // deze opdrachtbevestiging overslaan, rest van de lijst blijft werken
+      }
+    }
+    records.sort((a, b) => new Date(b.gewijzigdOp) - new Date(a.gewijzigdOp));
+    return records.map((r) => {
+      const bekekenEvents = (r.logboek || []).filter((e) => e.gebeurtenis === "geopend");
+      const laatsteBekeken = bekekenEvents.length > 0 ? bekekenEvents[bekekenEvents.length - 1] : null;
+      return {
+        id: r.id,
+        klantNamen: r.klantNamen || [],
+        klantGroepen: r.klantGroepen || [],
+        opdrachttypeId: r.opdrachttypeId || null,
+        opdrachttypeNaam: r.opdrachttypeNaam || "",
+        status: r.status || OFFERTE_STATUS_STANDAARD,
+        aangemaaktOp: r.aangemaaktOp,
+        aangemaaktDoor: r.aangemaaktDoor,
+        gewijzigdOp: r.gewijzigdOp,
+        gewijzigdDoor: r.gewijzigdDoor,
+        aantalBekeken: bekekenEvents.length,
+        laatstBekekenOp: laatsteBekeken?.op || null,
+        laatstBekekenIp: laatsteBekeken?.ip || null,
+      };
+    });
+  }
+  const res = await fetch("/api/opdrachtbevestigingen");
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
+async function opdrachtbevestigingOphalen(id) {
+  if (typeof window !== "undefined" && window.storage) {
+    const r = await window.storage.get(opdrachtbevestigingSleutel(id), true);
+    if (!r?.value) throw new Error("Opdrachtbevestiging niet gevonden.");
+    return JSON.parse(r.value);
+  }
+  const res = await fetch(`/api/opdrachtbevestiging/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// payload mag een deelverzameling zijn van { data, klantNamen, klantGroepen, status,
+// opdrachttypeId, opdrachttypeNaam, gebruikerNaam }. Zelfde "ontbrekende velden blijven
+// zoals ze waren"-gedrag als offerteOpslaan.
+async function opdrachtbevestigingOpslaan(id, payload) {
+  if (typeof window !== "undefined" && window.storage) {
+    const nu = new Date().toISOString();
+    let bestaandRecord = null;
+    try {
+      const bestaand = await window.storage.get(opdrachtbevestigingSleutel(id), true);
+      if (bestaand?.value) bestaandRecord = JSON.parse(bestaand.value);
+    } catch (e) {
+      // nog geen bestaand record; dit is dan de eerste opslag
+    }
+    const record = {
+      ...bestaandRecord,
+      id,
+      soort: "opdrachtbevestiging",
+      aangemaaktOp: bestaandRecord?.aangemaaktOp || nu,
+      aangemaaktDoor: bestaandRecord?.aangemaaktDoor || payload.gebruikerNaam,
+      aangemaaktDoorEmail: bestaandRecord?.aangemaaktDoorEmail || payload.gebruikerEmail || "",
+      gewijzigdOp: nu,
+      gewijzigdDoor: payload.gebruikerNaam,
+      klantNamen: payload.klantNamen !== undefined ? payload.klantNamen : bestaandRecord?.klantNamen || [],
+      klantGroepen: payload.klantGroepen !== undefined ? payload.klantGroepen : bestaandRecord?.klantGroepen || [],
+      status: payload.status !== undefined ? payload.status : bestaandRecord?.status || OFFERTE_STATUS_STANDAARD,
+      opdrachttypeId: payload.opdrachttypeId !== undefined ? payload.opdrachttypeId : bestaandRecord?.opdrachttypeId || null,
+      opdrachttypeNaam: payload.opdrachttypeNaam !== undefined ? payload.opdrachttypeNaam : bestaandRecord?.opdrachttypeNaam || "",
+      data: payload.data !== undefined ? payload.data : bestaandRecord?.data || {},
+    };
+    await window.storage.set(opdrachtbevestigingSleutel(id), JSON.stringify(record), true);
+    const ids = await opdrachtbevestigingenIndexOphalen();
+    if (!ids.includes(id)) {
+      ids.push(id);
+      await window.storage.set("opdrachtbevestigingen-index", JSON.stringify(ids), true);
+    }
+    return record;
+  }
+  const res = await fetch(`/api/opdrachtbevestiging/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", "X-Requested-With": "offertetool" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function opdrachtbevestigingenVerwijderen(ids) {
+  if (typeof window !== "undefined" && window.storage) {
+    await Promise.all(
+      ids.map(async (id) => {
+        try {
+          await window.storage.delete(opdrachtbevestigingSleutel(id), true);
+        } catch (e) {
+          // niets opgeslagen om te verwijderen, of al weg
+        }
+      })
+    );
+    const huidigeIndex = await opdrachtbevestigingenIndexOphalen();
+    const nieuweIndex = huidigeIndex.filter((id) => !ids.includes(id));
+    await window.storage.set("opdrachtbevestigingen-index", JSON.stringify(nieuweIndex), true);
+    return;
+  }
+  await Promise.all(
+    ids.map((id) =>
+      fetch(`/api/opdrachtbevestiging/${encodeURIComponent(id)}`, {
         method: "DELETE",
         headers: { "X-Requested-With": "offertetool" },
       }).catch(() => null)
@@ -874,6 +1071,386 @@ export default function OffertetoolApp() {
   // naast de automatische cc naar de maker van de offerte (zie bepaalOfferteMaker()).
   const [mailCcExtra, setMailCcExtra] = useState({});
 
+  // ---------------------------------------------------------------------------
+  // Opdrachtbevestiging — zelfde soort state als de offerte hierboven, maar in een eigen
+  // "namespace": een los record-ID/maker/status/opslaanstatus, en een los overzicht
+  // (lijst/filters/paginering/uitklapbaar logboek). Klant/diensten/prijzen (gekozenKlanten,
+  // geselecteerd, klantVarianten, aangepastePrijzen, uitgeschakeldVoorKlant) blijven WEL
+  // gedeeld met de offerte-stappen — dat is precies het punt: uit één selectie kun je zowel
+  // een offerte als een opdrachtbevestiging maken.
+  // ---------------------------------------------------------------------------
+  const [huidigeOpdrachtbevestigingId, setHuidigeOpdrachtbevestigingId] = useState(null);
+  const [opdrachtbevestigingMaker, setOpdrachtbevestigingMaker] = useState({ naam: "", email: "" });
+  const [opdrachtbevestigingOpslaanStatus, setOpdrachtbevestigingOpslaanStatus] = useState("idle"); // idle | bezig | opgeslagen | fout
+  const [huidigeOpdrachtbevestigingStatus, setHuidigeOpdrachtbevestigingStatus] = useState(OFFERTE_STATUS_STANDAARD);
+  const [tekenLinkGekopieerdOpdrachtbevestiging, setTekenLinkGekopieerdOpdrachtbevestiging] = useState(false);
+  const [pdfBezigOpdrachtbevestiging, setPdfBezigOpdrachtbevestiging] = useState(false);
+  // Vanuit welke offerte (indien via de snelkoppeling op het Offerte-scherm) deze
+  // opdrachtbevestiging is gestart — puur informatief, geen functionele koppeling.
+  const [opdrachtbevestigingVanuitOfferteId, setOpdrachtbevestigingVanuitOfferteId] = useState(null);
+  // Het gekozen opdrachttype (NV COS) voor de op dit moment "open" opdrachtbevestiging, en de
+  // bijbehorende paragrafen — verplicht (alleen-lezen kopie van het beheerde standaardtype) en
+  // optioneel (startpunt = de standaard-optionele paragrafen van dat type, per document vrij
+  // aan te passen/aan te vullen/te verwijderen).
+  const [gekozenOpdrachttypeId, setGekozenOpdrachttypeId] = useState(null);
+  const [opdrachtbevestigingParagrafen, setOpdrachtbevestigingParagrafen] = useState({ verplicht: [], optioneel: [] });
+
+  // Opdrachtbevestigingen-overzicht: zelfde opzet als het offertes-overzicht hierboven, met
+  // als enige inhoudelijke toevoeging het opdrachttype (kolom + filter) — zie het scherm
+  // "opdrachtbevestigingen" verderop.
+  const [opdrachtbevestigingenLijst, setOpdrachtbevestigingenLijst] = useState([]);
+  const [opdrachtbevestigingenLijstBezig, setOpdrachtbevestigingenLijstBezig] = useState(false);
+  const [opdrachtbevestigingenLijstFout, setOpdrachtbevestigingenLijstFout] = useState(false);
+  const [opdrachtbevestigingenZoekterm, setOpdrachtbevestigingenZoekterm] = useState("");
+  const [opdrachtbevestigingenFilterKlantgroep, setOpdrachtbevestigingenFilterKlantgroep] = useState("");
+  const [opdrachtbevestigingenFilterOpdrachttype, setOpdrachtbevestigingenFilterOpdrachttype] = useState("");
+  const [opdrachtbevestigingenFilterStatus, setOpdrachtbevestigingenFilterStatus] = useState("");
+  const [opdrachtbevestigingStatusBezigId, setOpdrachtbevestigingStatusBezigId] = useState(null);
+  const [obLogboekOpenId, setObLogboekOpenId] = useState(null);
+  const [obLogboekRecord, setObLogboekRecord] = useState(null);
+  const [obLogboekBezig, setObLogboekBezig] = useState(false);
+  const [opdrachtbevestigingenPagina, setOpdrachtbevestigingenPagina] = useState(1);
+  const [opdrachtbevestigingenPaginaGrootte, setOpdrachtbevestigingenPaginaGrootte] = useState(25);
+  const [opdrachtbevestigingenSelectie, setOpdrachtbevestigingenSelectie] = useState(() => new Set());
+  const [opdrachtbevestigingenVerwijderenBezig, setOpdrachtbevestigingenVerwijderenBezig] = useState(false);
+  const [opdrachtbevestigingenBevestigenTonen, setOpdrachtbevestigingenBevestigenTonen] = useState(false);
+
+  async function laadOpdrachtbevestigingenLijst() {
+    setOpdrachtbevestigingenLijstBezig(true);
+    setOpdrachtbevestigingenLijstFout(false);
+    try {
+      const data = await opdrachtbevestigingenLijstOphalen();
+      setOpdrachtbevestigingenLijst(data);
+      setOpdrachtbevestigingenSelectie(new Set());
+    } catch (e) {
+      setOpdrachtbevestigingenLijstFout(true);
+    } finally {
+      setOpdrachtbevestigingenLijstBezig(false);
+    }
+  }
+
+  function toggleOpdrachtbevestigingSelectie(id) {
+    setOpdrachtbevestigingenSelectie((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAlleOpdrachtbevestigingenOpPagina(ids, allesGeselecteerd) {
+    setOpdrachtbevestigingenSelectie((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => (allesGeselecteerd ? next.delete(id) : next.add(id)));
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    if (opdrachtbevestigingenSelectie.size === 0) setOpdrachtbevestigingenBevestigenTonen(false);
+  }, [opdrachtbevestigingenSelectie]);
+
+  async function verwijderGeselecteerdeOpdrachtbevestigingen() {
+    if (opdrachtbevestigingenSelectie.size === 0) return;
+    setOpdrachtbevestigingenVerwijderenBezig(true);
+    try {
+      const ids = [...opdrachtbevestigingenSelectie];
+      await opdrachtbevestigingenVerwijderen(ids);
+      setOpdrachtbevestigingenLijst((prev) => prev.filter((o) => !opdrachtbevestigingenSelectie.has(o.id)));
+      if (huidigeOpdrachtbevestigingId && opdrachtbevestigingenSelectie.has(huidigeOpdrachtbevestigingId)) {
+        setHuidigeOpdrachtbevestigingId(null);
+        setOpdrachtbevestigingMaker({ naam: "", email: "" });
+      }
+      setOpdrachtbevestigingenSelectie(new Set());
+      setOpdrachtbevestigingenBevestigenTonen(false);
+      await laadOpdrachtbevestigingenLijst();
+    } finally {
+      setOpdrachtbevestigingenVerwijderenBezig(false);
+    }
+  }
+
+  // Alle opdrachtbevestiging-inhoud die bij het opslaan/laden van één opdrachtbevestiging
+  // hoort — inclusief de gedeelde klant/diensten/prijzen-selectie (zelfde velden als
+  // huidigeOfferteSnapshot), plus het gekozen opdrachttype en de paragrafen.
+  function huidigeOpdrachtbevestigingSnapshot() {
+    const regelsPerKlant = {};
+    gekozenKlanten.forEach((k) => {
+      regelsPerKlant[k.id] = regelsVoorKlant(k.id);
+    });
+    return {
+      gekozenKlanten,
+      geselecteerd,
+      klantVarianten,
+      aangepastePrijzen,
+      uitgeschakeldVoorKlant,
+      regelsPerKlant,
+      logo,
+      afzender,
+      algemeneVoorwaarden,
+      namens: { naam: huidigeGebruiker?.naam || "", email: huidigeGebruiker?.email || "" },
+      opdrachttypeId: gekozenOpdrachttypeId,
+      opdrachttypeNaam: opdrachttypes.find((t) => t.id === gekozenOpdrachttypeId)?.naam || "",
+      paragrafen: opdrachtbevestigingParagrafen,
+      vanuitOfferteId: opdrachtbevestigingVanuitOfferteId,
+    };
+  }
+
+  async function slaOpdrachtbevestigingOp() {
+    if (gekozenKlanten.length === 0) return null;
+    const id = huidigeOpdrachtbevestigingId || nieuwId("opdrachtbevestiging");
+    setOpdrachtbevestigingOpslaanStatus("bezig");
+    try {
+      const snapshot = huidigeOpdrachtbevestigingSnapshot();
+      const record = await opdrachtbevestigingOpslaan(id, {
+        data: snapshot,
+        klantNamen: gekozenKlanten.map((k) => k.naam),
+        klantGroepen: [...new Set(gekozenKlanten.map((k) => k.segment).filter(Boolean))],
+        opdrachttypeId: snapshot.opdrachttypeId,
+        opdrachttypeNaam: snapshot.opdrachttypeNaam,
+        gebruikerNaam: huidigeGebruiker?.naam || "Onbekend",
+        gebruikerEmail: huidigeGebruiker?.email || "",
+      });
+      setHuidigeOpdrachtbevestigingId(id);
+      setHuidigeOpdrachtbevestigingStatus(record?.status || OFFERTE_STATUS_STANDAARD);
+      setOpdrachtbevestigingMaker({ naam: record?.aangemaaktDoor || "", email: record?.aangemaaktDoorEmail || "" });
+      setOpdrachtbevestigingOpslaanStatus("opgeslagen");
+      return id;
+    } catch (e) {
+      setOpdrachtbevestigingOpslaanStatus("fout");
+      return null;
+    }
+  }
+
+  async function openOpdrachtbevestiging(id) {
+    try {
+      const record = await opdrachtbevestigingOphalen(id);
+      const snap = record.data || {};
+      setGekozenKlanten(snap.gekozenKlanten || []);
+      setGeselecteerd(snap.geselecteerd || {});
+      setKlantVarianten(snap.klantVarianten || {});
+      setAangepastePrijzen(snap.aangepastePrijzen || {});
+      setUitgeschakeldVoorKlant(snap.uitgeschakeldVoorKlant || {});
+      setGekozenOpdrachttypeId(snap.opdrachttypeId || record.opdrachttypeId || null);
+      setOpdrachtbevestigingParagrafen(snap.paragrafen || { verplicht: [], optioneel: [] });
+      setOpdrachtbevestigingVanuitOfferteId(snap.vanuitOfferteId || null);
+      setHuidigeOpdrachtbevestigingId(id);
+      setHuidigeOpdrachtbevestigingStatus(record.status || OFFERTE_STATUS_STANDAARD);
+      setOpdrachtbevestigingMaker({ naam: record.aangemaaktDoor || "", email: record.aangemaaktDoorEmail || "" });
+      setOpdrachtbevestigingOpslaanStatus("idle");
+      // Onafhankelijk van welke offerte er evt. nog open stond — een geopende
+      // opdrachtbevestiging is een zelfstandig document.
+      setHuidigeOfferteId(null);
+      setOfferteMaker({ naam: "", email: "" });
+      setStap("opdrachtbevestiging");
+    } catch (e) {
+      setOpdrachtbevestigingenLijstFout(true);
+    }
+  }
+
+  async function toggleObLogboek(id) {
+    if (obLogboekOpenId === id) {
+      setObLogboekOpenId(null);
+      setObLogboekRecord(null);
+      return;
+    }
+    setObLogboekOpenId(id);
+    setObLogboekRecord(null);
+    setObLogboekBezig(true);
+    try {
+      const record = await opdrachtbevestigingOphalen(id);
+      setObLogboekRecord(record);
+    } catch (e) {
+      setObLogboekRecord({ fout: true });
+    } finally {
+      setObLogboekBezig(false);
+    }
+  }
+
+  async function wijzigOpdrachtbevestigingStatus(id, nieuweStatus) {
+    const vorige = opdrachtbevestigingenLijst;
+    setOpdrachtbevestigingenLijst((prev) => prev.map((o) => (o.id === id ? { ...o, status: nieuweStatus } : o)));
+    setOpdrachtbevestigingStatusBezigId(id);
+    try {
+      await opdrachtbevestigingOpslaan(id, {
+        status: nieuweStatus,
+        gebruikerNaam: huidigeGebruiker?.naam || "Onbekend",
+      });
+      await laadOpdrachtbevestigingenLijst();
+    } catch (e) {
+      setOpdrachtbevestigingenLijst(vorige);
+    } finally {
+      setOpdrachtbevestigingStatusBezigId(null);
+    }
+  }
+
+  // Reset zowel de offerte- als de opdrachtbevestiging-koppeling en de gedeelde klant/
+  // diensten/prijzen-selectie — gebruikt door zowel "Nieuwe offerte" als "Nieuwe
+  // opdrachtbevestiging" (beide beginnen bij dezelfde lege Klant-stap).
+  function nieuweKlantprijsSelectie() {
+    setGekozenKlanten([]);
+    setGeselecteerd({});
+    setKlantVarianten({});
+    setAangepastePrijzen({});
+    setUitgeschakeldVoorKlant({});
+    setAlgemeneToelichting("");
+    setBijlageToelichtingen({});
+    setKlantToelichtingen({});
+    setRoadmapToevoegen(false);
+    setHuidigeOfferteId(null);
+    setOfferteMaker({ naam: "", email: "" });
+    setHuidigeOfferteStatus(OFFERTE_STATUS_STANDAARD);
+    setOfferteOpslaanStatus("idle");
+    setOfferteVraagStatusTonen(false);
+    setHuidigeOpdrachtbevestigingId(null);
+    setOpdrachtbevestigingMaker({ naam: "", email: "" });
+    setHuidigeOpdrachtbevestigingStatus(OFFERTE_STATUS_STANDAARD);
+    setOpdrachtbevestigingOpslaanStatus("idle");
+    setGekozenOpdrachttypeId(null);
+    setOpdrachtbevestigingParagrafen({ verplicht: [], optioneel: [] });
+    setOpdrachtbevestigingVanuitOfferteId(null);
+  }
+
+  function nieuweOpdrachtbevestiging() {
+    nieuweKlantprijsSelectie();
+    setStap("klant");
+  }
+
+  // Opdrachttype kiezen/wisselen op de Opdrachtbevestiging-stap: de verplichte paragrafen
+  // worden vervangen door de standaardset van het nieuwe type; al ingevulde optionele
+  // paragrafen blijven staan. Bij het allereerste type-kiezen (nog geen optionele paragrafen)
+  // worden de standaard-optionele paragrafen van dat type als startpunt overgenomen.
+  function kiesOpdrachttype(typeId) {
+    setGekozenOpdrachttypeId(typeId);
+    const standaard = paragrafenVoorType(typeId);
+    setOpdrachtbevestigingParagrafen((prev) => ({
+      verplicht: (standaard.verplicht || []).map((p) => ({ ...p })),
+      optioneel: prev.optioneel && prev.optioneel.length > 0 ? prev.optioneel : (standaard.optioneel || []).map((p) => ({ ...p })),
+    }));
+  }
+
+  function voegRecordParagraafToe() {
+    setOpdrachtbevestigingParagrafen((prev) => ({
+      ...prev,
+      optioneel: [...(prev.optioneel || []), { id: nieuwId("par"), titel: "Nieuwe paragraaf", tekst: "" }],
+    }));
+  }
+  function verwijderRecordParagraaf(paragraafId) {
+    setOpdrachtbevestigingParagrafen((prev) => ({
+      ...prev,
+      optioneel: (prev.optioneel || []).filter((p) => p.id !== paragraafId),
+    }));
+  }
+  function bijwerkRecordParagraaf(paragraafId, veld, waarde) {
+    setOpdrachtbevestigingParagrafen((prev) => ({
+      ...prev,
+      optioneel: (prev.optioneel || []).map((p) => (p.id === paragraafId ? { ...p, [veld]: waarde } : p)),
+    }));
+  }
+
+  async function zorgVoorOpdrachtbevestigingId() {
+    if (huidigeOpdrachtbevestigingId) return huidigeOpdrachtbevestigingId;
+    return await slaOpdrachtbevestigingOp();
+  }
+
+  async function kopieerOpdrachtbevestigingTekenLink() {
+    const id = await zorgVoorOpdrachtbevestigingId();
+    if (!id) return;
+    const link = `${window.location.origin}/tekenen/${id}`;
+    try {
+      await navigator.clipboard.writeText(link);
+    } catch (e) {
+      window.prompt("Kopieer deze link handmatig:", link);
+    }
+    setTekenLinkGekopieerdOpdrachtbevestiging(true);
+    setTimeout(() => setTekenLinkGekopieerdOpdrachtbevestiging(false), 3000);
+  }
+
+  // Zelfde opzet als afdrukken() voor de offerte: dezelfde server-PDF (/api/teken/{id}?
+  // formaat=pdf, generiek gemaakt voor beide documentsoorten) in een nieuw tabblad openen.
+  async function afdrukkenOpdrachtbevestiging() {
+    const id = await slaOpdrachtbevestigingOp();
+    if (!id) {
+      window.alert("Opslaan van de opdrachtbevestiging is niet gelukt, dus er kan geen PDF worden gemaakt. Probeer het nogmaals.");
+      return;
+    }
+    setPdfBezigOpdrachtbevestiging(true);
+    try {
+      const res = await fetch(`/api/teken/${encodeURIComponent(id)}?formaat=pdf`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, "_blank");
+    } catch (e) {
+      window.alert("PDF maken is niet gelukt. Probeer het nogmaals.");
+    } finally {
+      setPdfBezigOpdrachtbevestiging(false);
+    }
+  }
+
+  // Unieke waarden voor de filter-dropdowns van het opdrachtbevestigingen-overzicht.
+  const opdrachtbevestigingenKlantgroepen = useMemo(() => {
+    const set = new Set();
+    opdrachtbevestigingenLijst.forEach((o) => (o.klantGroepen || []).forEach((g) => g && set.add(g)));
+    return [...set].sort((a, b) => a.localeCompare(b, "nl"));
+  }, [opdrachtbevestigingenLijst]);
+
+  const gefilterdeOpdrachtbevestigingen = useMemo(() => {
+    const q = opdrachtbevestigingenZoekterm.trim().toLowerCase();
+    return opdrachtbevestigingenLijst.filter((o) => {
+      if (opdrachtbevestigingenFilterKlantgroep && !(o.klantGroepen || []).includes(opdrachtbevestigingenFilterKlantgroep)) {
+        return false;
+      }
+      if (opdrachtbevestigingenFilterOpdrachttype && o.opdrachttypeId !== opdrachtbevestigingenFilterOpdrachttype) {
+        return false;
+      }
+      if (opdrachtbevestigingenFilterStatus && (o.status || OFFERTE_STATUS_STANDAARD) !== opdrachtbevestigingenFilterStatus) {
+        return false;
+      }
+      if (!q) return true;
+      const doorzoekbaar = [
+        ...(o.klantNamen || []),
+        ...(o.klantGroepen || []),
+        o.opdrachttypeNaam || "",
+        o.aangemaaktDoor || "",
+        o.gewijzigdDoor || "",
+        offerteStatusInfo(o.status).label,
+      ]
+        .join(" ")
+        .toLowerCase();
+      return doorzoekbaar.includes(q);
+    });
+  }, [
+    opdrachtbevestigingenLijst,
+    opdrachtbevestigingenZoekterm,
+    opdrachtbevestigingenFilterKlantgroep,
+    opdrachtbevestigingenFilterOpdrachttype,
+    opdrachtbevestigingenFilterStatus,
+  ]);
+
+  useEffect(() => {
+    setOpdrachtbevestigingenPagina(1);
+  }, [
+    opdrachtbevestigingenZoekterm,
+    opdrachtbevestigingenFilterKlantgroep,
+    opdrachtbevestigingenFilterOpdrachttype,
+    opdrachtbevestigingenFilterStatus,
+    opdrachtbevestigingenLijst,
+    opdrachtbevestigingenPaginaGrootte,
+  ]);
+
+  const opdrachtbevestigingenTotaalPaginas =
+    opdrachtbevestigingenPaginaGrootte === "alle"
+      ? 1
+      : Math.max(1, Math.ceil(gefilterdeOpdrachtbevestigingen.length / opdrachtbevestigingenPaginaGrootte));
+  const opdrachtbevestigingenPaginaVeilig = Math.min(opdrachtbevestigingenPagina, opdrachtbevestigingenTotaalPaginas);
+  const gepagineerdeOpdrachtbevestigingen =
+    opdrachtbevestigingenPaginaGrootte === "alle"
+      ? gefilterdeOpdrachtbevestigingen
+      : gefilterdeOpdrachtbevestigingen.slice(
+          (opdrachtbevestigingenPaginaVeilig - 1) * opdrachtbevestigingenPaginaGrootte,
+          opdrachtbevestigingenPaginaVeilig * opdrachtbevestigingenPaginaGrootte
+        );
+
   async function laadOffertesLijst() {
     setOffertesLijstBezig(true);
     setOffertesLijstFout(false);
@@ -1008,6 +1585,10 @@ export default function OffertetoolApp() {
       setOfferteMaker({ naam: record.aangemaaktDoor || "", email: record.aangemaaktDoorEmail || "" });
       setOfferteOpslaanStatus("idle");
       setOfferteVraagStatusTonen(false);
+      // Een geopende offerte is een zelfstandig document — laat een eventueel nog open
+      // staande opdrachtbevestiging los, net zoals openOpdrachtbevestiging andersom doet.
+      setHuidigeOpdrachtbevestigingId(null);
+      setOpdrachtbevestigingMaker({ naam: "", email: "" });
       setStap("offerte");
     } catch (e) {
       setOffertesLijstFout(true);
@@ -1055,20 +1636,10 @@ export default function OffertetoolApp() {
 
 
   function nieuweOfferte() {
-    setGekozenKlanten([]);
-    setGeselecteerd({});
-    setKlantVarianten({});
-    setAangepastePrijzen({});
-    setUitgeschakeldVoorKlant({});
-    setAlgemeneToelichting("");
-    setBijlageToelichtingen({});
-    setKlantToelichtingen({});
-    setRoadmapToevoegen(false);
-    setHuidigeOfferteId(null);
-    setOfferteMaker({ naam: "", email: "" });
-    setHuidigeOfferteStatus(OFFERTE_STATUS_STANDAARD);
-    setOfferteOpslaanStatus("idle");
-    setOfferteVraagStatusTonen(false);
+    // Zie nieuweKlantprijsSelectie() hierboven — reset ook de eventueel gekoppelde
+    // opdrachtbevestiging, zodat een "Nieuwe offerte" niet per ongeluk een oude,
+    // ongerelateerde opdrachtbevestiging blijft overschrijven bij een volgende opslag.
+    nieuweKlantprijsSelectie();
     setStap("klant");
   }
 
@@ -1405,6 +1976,143 @@ export default function OffertetoolApp() {
     opslagSetDebounced("standaardteksten", JSON.stringify(standaardTeksten));
   }, [standaardTeksten, tekstenGeladen]);
 
+  // opdrachttypes: zelf te beheren lijst van NV COS-opdrachttypes, net als de dienstencatalogus.
+  const [opdrachttypes, setOpdrachttypes] = useState(INITIAL_OPDRACHTTYPES);
+  const [opdrachttypesGeladen, setOpdrachttypesGeladen] = useState(false);
+  // Welk opdrachttype er op dit moment bewerkt wordt op het beheerscherm "Opdrachtbevestiging-
+  // teksten" (los van gekozenOpdrachttypeId, dat is voor de wizard-stap zelf).
+  const [beheerOpdrachttypeId, setBeheerOpdrachttypeId] = useState(null);
+
+  useEffect(() => {
+    let actief = true;
+    (async () => {
+      try {
+        const waarde = await opslagGet("opdrachttypes");
+        if (actief && waarde) setOpdrachttypes(JSON.parse(waarde));
+      } catch (e) {
+        // nog niets opgeslagen — dan blijft de standaardset staan
+      }
+      if (actief) setOpdrachttypesGeladen(true);
+    })();
+    return () => {
+      actief = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!opdrachttypesGeladen) return;
+    opslagSetDebounced("opdrachttypes", JSON.stringify(opdrachttypes));
+  }, [opdrachttypes, opdrachttypesGeladen]);
+
+  // opdrachtbevestigingTeksten: per opdrachttype-ID de verplichte + optionele standaard-
+  // paragrafen — net als standaardTeksten, maar dan één set per opdrachttype in plaats van
+  // per dienst. Vorm: { [opdrachttypeId]: { verplicht: [{id, titel, tekst}], optioneel: [...] } }
+  const [opdrachtbevestigingTeksten, setOpdrachtbevestigingTeksten] = useState(INITIAL_OPDRACHTBEVESTIGING_TEKSTEN);
+  const [opdrachtbevestigingTekstenGeladen, setOpdrachtbevestigingTekstenGeladen] = useState(false);
+
+  useEffect(() => {
+    let actief = true;
+    (async () => {
+      try {
+        const waarde = await opslagGet("opdrachtbevestiging-teksten");
+        if (actief && waarde) setOpdrachtbevestigingTeksten(JSON.parse(waarde));
+      } catch (e) {
+        // nog niets opgeslagen — dan blijft de standaardset staan
+      }
+      if (actief) setOpdrachtbevestigingTekstenGeladen(true);
+    })();
+    return () => {
+      actief = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!opdrachtbevestigingTekstenGeladen) return;
+    opslagSetDebounced("opdrachtbevestiging-teksten", JSON.stringify(opdrachtbevestigingTeksten));
+  }, [opdrachtbevestigingTeksten, opdrachtbevestigingTekstenGeladen]);
+
+  // taakInstellingenOfferte: onderwerp/categorie van de taak die na ondertekening van een
+  // offerte wordt aangemaakt — voorheen vast ("Onboarding klant" / 8009 Backoffice), nu
+  // instelbaar. Staat altijd aan (geen aparte "actief"-schakelaar, ongewijzigd gedrag).
+  const [taakInstellingenOfferte, setTaakInstellingenOfferte] = useState(TAAK_INSTELLINGEN_OFFERTE_DEFAULT);
+  const [taakInstellingenOfferteGeladen, setTaakInstellingenOfferteGeladen] = useState(false);
+
+  useEffect(() => {
+    let actief = true;
+    (async () => {
+      try {
+        const waarde = await opslagGet("taak-instellingen-offerte");
+        if (actief && waarde) setTaakInstellingenOfferte({ ...TAAK_INSTELLINGEN_OFFERTE_DEFAULT, ...JSON.parse(waarde) });
+      } catch (e) {
+        // nog niets ingesteld — standaardwaarden blijven staan
+      }
+      if (actief) setTaakInstellingenOfferteGeladen(true);
+    })();
+    return () => {
+      actief = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!taakInstellingenOfferteGeladen) return;
+    opslagSetDebounced("taak-instellingen-offerte", JSON.stringify(taakInstellingenOfferte));
+  }, [taakInstellingenOfferte, taakInstellingenOfferteGeladen]);
+
+  // taakInstellingenOpdrachtbevestiging: zelfde soort instelling als hierboven, maar dan voor
+  // opdrachtbevestiging — met een eigen "actief"-schakelaar (los van offerte), standaard uit.
+  const [taakInstellingenOpdrachtbevestiging, setTaakInstellingenOpdrachtbevestiging] = useState(TAAK_INSTELLINGEN_OPDRACHTBEVESTIGING_DEFAULT);
+  const [taakInstellingenOpdrachtbevestigingGeladen, setTaakInstellingenOpdrachtbevestigingGeladen] = useState(false);
+
+  useEffect(() => {
+    let actief = true;
+    (async () => {
+      try {
+        const waarde = await opslagGet("taak-instellingen-opdrachtbevestiging");
+        if (actief && waarde) {
+          setTaakInstellingenOpdrachtbevestiging({ ...TAAK_INSTELLINGEN_OPDRACHTBEVESTIGING_DEFAULT, ...JSON.parse(waarde) });
+        }
+      } catch (e) {
+        // nog niets ingesteld — standaardwaarden (uit) blijven staan
+      }
+      if (actief) setTaakInstellingenOpdrachtbevestigingGeladen(true);
+    })();
+    return () => {
+      actief = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!taakInstellingenOpdrachtbevestigingGeladen) return;
+    opslagSetDebounced("taak-instellingen-opdrachtbevestiging", JSON.stringify(taakInstellingenOpdrachtbevestiging));
+  }, [taakInstellingenOpdrachtbevestiging, taakInstellingenOpdrachtbevestigingGeladen]);
+
+  // webhookOpdrachtbevestiging: zelfde opzet als webhookAcceptatie (leeg = uitgeschakeld),
+  // maar los in te stellen van de offerte-webhook hierboven.
+  const [webhookOpdrachtbevestiging, setWebhookOpdrachtbevestiging] = useState("");
+  const [webhookOpdrachtbevestigingGeladen, setWebhookOpdrachtbevestigingGeladen] = useState(false);
+
+  useEffect(() => {
+    let actief = true;
+    (async () => {
+      try {
+        const waarde = await opslagGet("webhook-opdrachtbevestiging-acceptatie");
+        if (actief && waarde) setWebhookOpdrachtbevestiging(waarde);
+      } catch (e) {
+        // nog geen webhook ingesteld
+      } finally {
+        if (actief) setWebhookOpdrachtbevestigingGeladen(true);
+      }
+    })();
+    return () => {
+      actief = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!webhookOpdrachtbevestigingGeladen) return;
+    opslagSetDebounced("webhook-opdrachtbevestiging-acceptatie", webhookOpdrachtbevestiging);
+  }, [webhookOpdrachtbevestiging, webhookOpdrachtbevestigingGeladen]);
+
   // Klanten ophalen bij de eigen Dynamics-koppeling (Azure Function op /api/klanten).
   // Lukt dit niet (nog niet geconfigureerd, lokale ontwikkeling, of een fout) dan valt
   // de tool terug op de voorbeeldklanten, zodat de tool altijd blijft werken.
@@ -1694,6 +2402,68 @@ export default function OffertetoolApp() {
     );
   }
 
+  // ---- Opdrachttypes beheren (Instellingen > Opdrachtbevestiging-teksten) ----
+  // Zelfde generieke-veldzetter-aanpak als bijwerkDienstVeld hierboven.
+  function voegOpdrachttypeToe() {
+    const id = nieuwId("otype");
+    setOpdrachttypes((prev) => [...prev, { id, naam: "Nieuw opdrachttype" }]);
+    setOpdrachtbevestigingTeksten((prev) => ({ ...prev, [id]: { verplicht: [], optioneel: [] } }));
+    return id;
+  }
+  function verwijderOpdrachttype(id) {
+    setOpdrachttypes((prev) => prev.filter((t) => t.id !== id));
+    setOpdrachtbevestigingTeksten((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }
+  function bijwerkOpdrachttypeVeld(id, veld, waarde) {
+    setOpdrachttypes((prev) => prev.map((t) => (t.id === id ? { ...t, [veld]: waarde } : t)));
+  }
+  function verplaatsOpdrachttype(id, richting) {
+    setOpdrachttypes((prev) => {
+      const idx = prev.findIndex((t) => t.id === id);
+      const nieuweIdx = idx + richting;
+      if (idx === -1 || nieuweIdx < 0 || nieuweIdx >= prev.length) return prev;
+      const next = [...prev];
+      [next[idx], next[nieuweIdx]] = [next[nieuweIdx], next[idx]];
+      return next;
+    });
+  }
+
+  // ---- Standaardparagrafen per opdrachttype beheren (verplicht + optioneel) ----
+  function paragrafenVoorType(typeId) {
+    return opdrachtbevestigingTeksten[typeId] || { verplicht: [], optioneel: [] };
+  }
+  function voegStandaardParagraafToe(typeId, soort) {
+    setOpdrachtbevestigingTeksten((prev) => {
+      const huidig = prev[typeId] || { verplicht: [], optioneel: [] };
+      return {
+        ...prev,
+        [typeId]: { ...huidig, [soort]: [...(huidig[soort] || []), { id: nieuwId("par"), titel: "Nieuwe paragraaf", tekst: "" }] },
+      };
+    });
+  }
+  function verwijderStandaardParagraaf(typeId, soort, paragraafId) {
+    setOpdrachtbevestigingTeksten((prev) => {
+      const huidig = prev[typeId] || { verplicht: [], optioneel: [] };
+      return { ...prev, [typeId]: { ...huidig, [soort]: (huidig[soort] || []).filter((p) => p.id !== paragraafId) } };
+    });
+  }
+  function bijwerkStandaardParagraaf(typeId, soort, paragraafId, veld, waarde) {
+    setOpdrachtbevestigingTeksten((prev) => {
+      const huidig = prev[typeId] || { verplicht: [], optioneel: [] };
+      return {
+        ...prev,
+        [typeId]: {
+          ...huidig,
+          [soort]: (huidig[soort] || []).map((p) => (p.id === paragraafId ? { ...p, [veld]: waarde } : p)),
+        },
+      };
+    });
+  }
+
   function toggleKlant(k) {
     setGekozenKlanten((prev) =>
       prev.some((x) => x.id === k.id)
@@ -1746,7 +2516,16 @@ export default function OffertetoolApp() {
     const i = stapIndex(stap);
     if (i > 0) setStap(STAPPEN[i - 1].key);
   }
-  const BEHEERSCHERMEN = ["catalogus", "teksten", "voorwaarden", "roadmap", "offertes", "instellingen"];
+  const BEHEERSCHERMEN = [
+    "catalogus",
+    "teksten",
+    "voorwaarden",
+    "roadmap",
+    "offertes",
+    "opdrachtbevestiging-teksten",
+    "opdrachtbevestigingen",
+    "instellingen",
+  ];
   function openAfzender() {
     if (!BEHEERSCHERMEN.includes(stap)) setTerugNaarStap(stap);
     setStap("instellingen");
@@ -1771,6 +2550,15 @@ export default function OffertetoolApp() {
     if (!BEHEERSCHERMEN.includes(stap)) setTerugNaarStap(stap);
     setStap("offertes");
     laadOffertesLijst();
+  }
+  function openOpdrachtbevestigingTeksten() {
+    if (!BEHEERSCHERMEN.includes(stap)) setTerugNaarStap(stap);
+    setStap("opdrachtbevestiging-teksten");
+  }
+  function openOpdrachtbevestigingenOverzicht() {
+    if (!BEHEERSCHERMEN.includes(stap)) setTerugNaarStap(stap);
+    setStap("opdrachtbevestigingen");
+    laadOpdrachtbevestigingenLijst();
   }
 
   function bijwerkStandaardAlgemeen(tekst) {
@@ -2226,6 +3014,25 @@ export default function OffertetoolApp() {
                 <List size={14} />
                 Offertes
               </button>
+              <button
+                onClick={openOpdrachtbevestigingenOverzicht}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  border: "1px solid #C8CDC5",
+                  background: stap === "opdrachtbevestigingen" ? "#1C5D8C" : "#fff",
+                  color: stap === "opdrachtbevestigingen" ? "#fff" : "#5B6259",
+                  padding: "7px 12px",
+                  borderRadius: 20,
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <List size={14} />
+                Opdrachtbevestigingen
+              </button>
             </div>
           </div>
         </div>
@@ -2301,6 +3108,7 @@ export default function OffertetoolApp() {
               onTeksten={openTeksten}
               onVoorwaarden={openVoorwaarden}
               onRoadmap={openRoadmap}
+              onOpdrachtbevestigingTeksten={openOpdrachtbevestigingTeksten}
             />
 
             <label className="ot-label" style={{ marginBottom: 2, display: "block", fontSize: 15, fontWeight: 700 }}>
@@ -2489,6 +3297,98 @@ export default function OffertetoolApp() {
               />
             </div>
 
+            <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
+              <span>Offerte — taak bij ondertekening</span>
+            </div>
+            <div className="ot-card" style={{ padding: 24 }}>
+              <p style={{ fontSize: 12.5, color: "#5B6259", margin: "0 0 14px" }}>
+                Staat altijd aan (ongewijzigd) — onderwerp en categorie zijn nu wel instelbaar in plaats van vast.
+                Eigenaar van de taak blijft de relatiebeheerder van de klant.
+              </p>
+              <div className="ot-tweekolommen">
+                <div>
+                  <label className="ot-label">Taak — onderwerp</label>
+                  <input
+                    className="ot-input"
+                    value={taakInstellingenOfferte.onderwerp}
+                    onChange={(e) => setTaakInstellingenOfferte((prev) => ({ ...prev, onderwerp: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="ot-label">Taak — categorie (soort actiecategorie)</label>
+                  <TaakCategorieSelect
+                    waarde={taakInstellingenOfferte.categorie}
+                    onChange={(code) => setTaakInstellingenOfferte((prev) => ({ ...prev, categorie: code }))}
+                  />
+                </div>
+              </div>
+              <p style={{ fontSize: 11.5, color: "#8A9089", margin: "10px 0 0" }}>
+                Dit zijn de categorieën die tot nu toe zijn tegengekomen in de koppeling — gebruikt Activaa er meer,
+                dan kunnen die met "Andere code…" alsnog ingevuld worden.
+              </p>
+            </div>
+
+            <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
+              <span>Opdrachtbevestiging — taak bij ondertekening</span>
+            </div>
+            <div className="ot-card" style={{ padding: 24 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13.5, fontWeight: 600, marginBottom: 16, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={!!taakInstellingenOpdrachtbevestiging.actief}
+                  onChange={(e) => setTaakInstellingenOpdrachtbevestiging((prev) => ({ ...prev, actief: e.target.checked }))}
+                  style={{ width: 16, height: 16, accentColor: "#1C5D8C" }}
+                />
+                Taak aanmaken bij ondertekening — {taakInstellingenOpdrachtbevestiging.actief ? "aan" : "uit"}
+              </label>
+              <div className="ot-tweekolommen">
+                <div>
+                  <label className="ot-label">Taak — onderwerp</label>
+                  <input
+                    className="ot-input"
+                    value={taakInstellingenOpdrachtbevestiging.onderwerp}
+                    onChange={(e) => setTaakInstellingenOpdrachtbevestiging((prev) => ({ ...prev, onderwerp: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="ot-label">Taak — categorie (soort actiecategorie)</label>
+                  <TaakCategorieSelect
+                    waarde={taakInstellingenOpdrachtbevestiging.categorie}
+                    onChange={(code) => setTaakInstellingenOpdrachtbevestiging((prev) => ({ ...prev, categorie: code }))}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
+              <span>Opdrachtbevestiging — webhook bij ondertekening</span>
+            </div>
+            <div className="ot-card" style={{ padding: 24 }}>
+              <p style={{ fontSize: 12.5, color: "#8A9089", marginTop: 0, marginBottom: 10 }}>
+                Zelfde werking als de offerte-webhook hierboven — het Dynamics-accountid komt als{" "}
+                <code>?ID=</code> op de URL, en de body bevat het document-ID, klant, ondertekenaar, tekenlink en
+                bedrag. Los in te stellen van de offerte-webhook; leeg = uitgeschakeld.
+              </p>
+              <input
+                className="ot-input"
+                type="url"
+                placeholder="https://prod-00.westeurope.logic.azure.com/workflows/..."
+                value={webhookOpdrachtbevestiging}
+                onChange={(e) => setWebhookOpdrachtbevestiging(e.target.value)}
+              />
+            </div>
+
+            <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
+              <span>SharePoint-opslag na ondertekening</span>
+            </div>
+            <div className="ot-card" style={{ padding: 24, background: "#F5F6F4" }}>
+              <p style={{ fontSize: 12.5, color: "#5B6259", margin: 0 }}>
+                Geen aparte instelling nodig: net als bij offerte wordt de getekende opdrachtbevestiging
+                automatisch geüpload naar de SharePoint-map uit het <code>cr283_sharepoint</code>-veld van de klant
+                in Dynamics — dezelfde koppeling die er al is, nu ook voor opdrachtbevestiging.
+              </p>
+            </div>
+
             <div style={{ display: "flex", justifyContent: "flex-start", marginTop: 22 }}>
               <button className="ot-btn-secondary" onClick={() => setStap(terugNaarStap)}>
                 <ChevronLeft size={15} />
@@ -2510,6 +3410,7 @@ export default function OffertetoolApp() {
               onTeksten={openTeksten}
               onVoorwaarden={openVoorwaarden}
               onRoadmap={openRoadmap}
+              onOpdrachtbevestigingTeksten={openOpdrachtbevestigingTeksten}
             />
 
             {["eenmalig", "doorlopend"].map((cat) => (
@@ -2701,6 +3602,7 @@ export default function OffertetoolApp() {
               onTeksten={openTeksten}
               onVoorwaarden={openVoorwaarden}
               onRoadmap={openRoadmap}
+              onOpdrachtbevestigingTeksten={openOpdrachtbevestigingTeksten}
             />
 
             <div style={{ display: "grid", gap: 12 }}>
@@ -2779,6 +3681,193 @@ export default function OffertetoolApp() {
           </StapWrapper>
         )}
 
+        {/* -------------------- OPDRACHTBEVESTIGING-TEKSTEN BEHEREN -------------------- */}
+        {stap === "opdrachtbevestiging-teksten" &&
+          (() => {
+            const actieveType = opdrachttypes.find((t) => t.id === beheerOpdrachttypeId) || opdrachttypes[0] || null;
+            const paragrafen = actieveType ? paragrafenVoorType(actieveType.id) : { verplicht: [], optioneel: [] };
+            return (
+              <StapWrapper
+                titel="Opdrachtbevestiging-teksten beheren"
+                toelichting="Leg hier per opdrachttype (NV COS) de verplichte en optionele standaardparagrafen vast — dit is waar de daadwerkelijke NV COS-teksten worden ingevuld, precies zoals bij 'Teksten beheren' voor de offerte."
+              >
+                <OverigBeheerBalk
+                  actief={stap}
+                  onCatalogus={openCatalogus}
+                  onTeksten={openTeksten}
+                  onVoorwaarden={openVoorwaarden}
+                  onRoadmap={openRoadmap}
+                  onOpdrachtbevestigingTeksten={openOpdrachtbevestigingTeksten}
+                />
+
+                <div className="ot-cat-koptekst">
+                  <span>Opdrachttypes (zelf te beheren, net als de dienstencatalogus)</span>
+                  <button
+                    className="ot-btn-ghost"
+                    onClick={() => {
+                      const id = voegOpdrachttypeToe();
+                      setBeheerOpdrachttypeId(id);
+                    }}
+                  >
+                    <PlusCircle size={13} />
+                    Opdrachttype toevoegen
+                  </button>
+                </div>
+                <div className="ot-card" style={{ padding: 16, marginBottom: 22 }}>
+                  {opdrachttypes.length === 0 ? (
+                    <p style={{ fontSize: 12.5, color: "#8A9089", margin: 0 }}>
+                      Nog geen opdrachttypes — voeg er hierboven één toe.
+                    </p>
+                  ) : (
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {opdrachttypes.map((t, idx) => (
+                        <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <input
+                            className="ot-input"
+                            value={t.naam}
+                            onChange={(e) => bijwerkOpdrachttypeVeld(t.id, "naam", e.target.value)}
+                          />
+                          <button className="ot-btn-ghost" disabled={idx === 0} onClick={() => verplaatsOpdrachttype(t.id, -1)} title="Omhoog">
+                            <ChevronUp size={14} />
+                          </button>
+                          <button
+                            className="ot-btn-ghost"
+                            disabled={idx === opdrachttypes.length - 1}
+                            onClick={() => verplaatsOpdrachttype(t.id, 1)}
+                            title="Omlaag"
+                          >
+                            <ChevronDown size={14} />
+                          </button>
+                          <button
+                            className="ot-btn-ghost"
+                            onClick={() => {
+                              verwijderOpdrachttype(t.id);
+                              if (beheerOpdrachttypeId === t.id) setBeheerOpdrachttypeId(null);
+                            }}
+                            title="Verwijderen"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <p style={{ fontSize: 12, color: "#8A9089", margin: "10px 0 0" }}>
+                    Deze lijst bepaal je zelf — type toevoegen, naam wijzigen, volgorde of verwijderen kan hier. Elk
+                    type krijgt hieronder zijn eigen verplichte/optionele paragrafen.
+                  </p>
+                </div>
+
+                {actieveType && (
+                  <>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+                      {opdrachttypes.map((t) => (
+                        <button
+                          key={t.id}
+                          className={t.id === actieveType.id ? "ot-pill actief" : "ot-pill"}
+                          onClick={() => setBeheerOpdrachttypeId(t.id)}
+                        >
+                          {t.naam}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="ot-cat-koptekst">
+                      <span>Verplichte paragrafen</span>
+                      <button className="ot-btn-ghost" onClick={() => voegStandaardParagraafToe(actieveType.id, "verplicht")}>
+                        <PlusCircle size={13} />
+                        Verplichte paragraaf toevoegen
+                      </button>
+                    </div>
+                    <div style={{ display: "grid", gap: 12, marginBottom: 10 }}>
+                      {paragrafen.verplicht.length === 0 && (
+                        <p style={{ fontSize: 12.5, color: "#8A9089" }}>Nog geen verplichte paragrafen voor dit type.</p>
+                      )}
+                      {paragrafen.verplicht.map((p) => (
+                        <div key={p.id} className="ot-card" style={{ padding: 18 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
+                            <div style={{ flex: 1 }}>
+                              <label className="ot-label">Paragraaftitel</label>
+                              <input
+                                className="ot-input"
+                                value={p.titel}
+                                onChange={(e) => bijwerkStandaardParagraaf(actieveType.id, "verplicht", p.id, "titel", e.target.value)}
+                              />
+                            </div>
+                            <button
+                              className="ot-btn-ghost"
+                              style={{ alignSelf: "flex-end" }}
+                              onClick={() => verwijderStandaardParagraaf(actieveType.id, "verplicht", p.id)}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                          <label className="ot-label">Standaardtekst (NV COS)</label>
+                          <textarea
+                            className="ot-input"
+                            rows={4}
+                            placeholder="Vul hier de definitieve, verplichte NV COS-tekst in…"
+                            value={p.tekst}
+                            onChange={(e) => bijwerkStandaardParagraaf(actieveType.id, "verplicht", p.id, "tekst", e.target.value)}
+                          />
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="ot-cat-koptekst">
+                      <span>Optionele paragrafen (standaard beschikbaar, niet verplicht)</span>
+                      <button className="ot-btn-ghost" onClick={() => voegStandaardParagraafToe(actieveType.id, "optioneel")}>
+                        <PlusCircle size={13} />
+                        Optionele paragraaf toevoegen
+                      </button>
+                    </div>
+                    <div style={{ display: "grid", gap: 12 }}>
+                      {paragrafen.optioneel.length === 0 && (
+                        <p style={{ fontSize: 12.5, color: "#8A9089" }}>Nog geen optionele paragrafen voor dit type.</p>
+                      )}
+                      {paragrafen.optioneel.map((p) => (
+                        <div key={p.id} className="ot-card" style={{ padding: 18 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
+                            <div style={{ flex: 1 }}>
+                              <label className="ot-label">Paragraaftitel</label>
+                              <input
+                                className="ot-input"
+                                value={p.titel}
+                                onChange={(e) => bijwerkStandaardParagraaf(actieveType.id, "optioneel", p.id, "titel", e.target.value)}
+                              />
+                            </div>
+                            <button
+                              className="ot-btn-ghost"
+                              style={{ alignSelf: "flex-end" }}
+                              onClick={() => verwijderStandaardParagraaf(actieveType.id, "optioneel", p.id)}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                          <label className="ot-label">Standaardtekst</label>
+                          <textarea
+                            className="ot-input"
+                            rows={3}
+                            placeholder="Eigen tekst…"
+                            value={p.tekst}
+                            onChange={(e) => bijwerkStandaardParagraaf(actieveType.id, "optioneel", p.id, "tekst", e.target.value)}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                <div style={{ display: "flex", justifyContent: "flex-start", marginTop: 22 }}>
+                  <button className="ot-btn-secondary" onClick={() => setStap(terugNaarStap)}>
+                    <ChevronLeft size={15} />
+                    Terug
+                  </button>
+                </div>
+              </StapWrapper>
+            );
+          })()}
+
         {/* -------------------- VOORWAARDEN BEHEREN -------------------- */}
         {stap === "voorwaarden" && (
           <StapWrapper
@@ -2791,6 +3880,7 @@ export default function OffertetoolApp() {
               onTeksten={openTeksten}
               onVoorwaarden={openVoorwaarden}
               onRoadmap={openRoadmap}
+              onOpdrachtbevestigingTeksten={openOpdrachtbevestigingTeksten}
             />
 
             <div className="ot-card" style={{ padding: 18, display: "grid", gap: 14 }}>
@@ -2838,6 +3928,7 @@ export default function OffertetoolApp() {
               onTeksten={openTeksten}
               onVoorwaarden={openVoorwaarden}
               onRoadmap={openRoadmap}
+              onOpdrachtbevestigingTeksten={openOpdrachtbevestigingTeksten}
             />
 
             <div style={{ marginBottom: 14 }}>
@@ -3412,6 +4503,484 @@ export default function OffertetoolApp() {
                       style={{ width: "auto", padding: "5px 8px", fontSize: 12.5 }}
                       value={offertesPaginaGrootte}
                       onChange={(e) => setOffertesPaginaGrootte(e.target.value === "alle" ? "alle" : Number(e.target.value))}
+                    >
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                      <option value="alle">Alle</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+            )}
+          </StapWrapper>
+        )}
+
+        {/* -------------------- OPDRACHTBEVESTIGINGEN OVERZICHT -------------------- */}
+        {stap === "opdrachtbevestigingen" && (
+          <StapWrapper
+            titel="Opdrachtbevestigingen overzicht"
+            toelichting="Alle opgeslagen opdrachtbevestigingen van iedereen. Open er één om een kleine wijziging te maken — bij opnieuw afdrukken/PDF wordt dezelfde opdrachtbevestiging bijgewerkt."
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button className="ot-btn-ghost" onClick={laadOpdrachtbevestigingenLijst} disabled={opdrachtbevestigingenLijstBezig}>
+                  <RotateCcw size={13} />
+                  {opdrachtbevestigingenLijstBezig ? "Bezig met laden…" : "Vernieuwen"}
+                </button>
+                {opdrachtbevestigingenSelectie.size > 0 && (
+                  <button
+                    onClick={() => setOpdrachtbevestigingenBevestigenTonen(true)}
+                    disabled={opdrachtbevestigingenVerwijderenBezig}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      border: "1px solid #E2C4B0",
+                      background: "#FBF2EC",
+                      color: "#B14A2E",
+                      padding: "7px 12px",
+                      borderRadius: 8,
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      cursor: opdrachtbevestigingenVerwijderenBezig ? "default" : "pointer",
+                    }}
+                  >
+                    <Trash2 size={14} />
+                    {opdrachtbevestigingenVerwijderenBezig
+                      ? "Bezig met verwijderen…"
+                      : `${opdrachtbevestigingenSelectie.size} geselecteerd — verwijderen`}
+                  </button>
+                )}
+              </div>
+              <button className="ot-btn-primary" onClick={nieuweOpdrachtbevestiging}>
+                <PlusCircle size={15} />
+                Nieuwe opdrachtbevestiging
+              </button>
+            </div>
+
+            {opdrachtbevestigingenBevestigenTonen && opdrachtbevestigingenSelectie.size > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  flexWrap: "wrap",
+                  padding: "12px 16px",
+                  borderRadius: 10,
+                  background: "#FBF2EC",
+                  border: "1px solid #E2C4B0",
+                  marginBottom: 16,
+                }}
+              >
+                <span style={{ fontSize: 13, color: "#7A3520" }}>
+                  {opdrachtbevestigingenSelectie.size === 1
+                    ? "Deze opdrachtbevestiging definitief verwijderen? Dit kan niet ongedaan worden gemaakt."
+                    : `${opdrachtbevestigingenSelectie.size} opdrachtbevestigingen definitief verwijderen? Dit kan niet ongedaan worden gemaakt.`}
+                </span>
+                <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                  <button
+                    className="ot-btn-secondary"
+                    onClick={() => setOpdrachtbevestigingenBevestigenTonen(false)}
+                    disabled={opdrachtbevestigingenVerwijderenBezig}
+                  >
+                    Annuleren
+                  </button>
+                  <button
+                    onClick={verwijderGeselecteerdeOpdrachtbevestigingen}
+                    disabled={opdrachtbevestigingenVerwijderenBezig}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      border: "none",
+                      background: "#B14A2E",
+                      color: "#fff",
+                      padding: "8px 14px",
+                      borderRadius: 8,
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      cursor: opdrachtbevestigingenVerwijderenBezig ? "default" : "pointer",
+                    }}
+                  >
+                    <Trash2 size={14} />
+                    {opdrachtbevestigingenVerwijderenBezig ? "Bezig…" : "Ja, verwijderen"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+              <div style={{ position: "relative", flex: "1 1 240px", minWidth: 200 }}>
+                <Search size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#8A9089" }} />
+                <input
+                  className="ot-input"
+                  style={{ paddingLeft: 30 }}
+                  placeholder="Zoek op klant, klantgroep of naam…"
+                  value={opdrachtbevestigingenZoekterm}
+                  onChange={(e) => setOpdrachtbevestigingenZoekterm(e.target.value)}
+                />
+              </div>
+              <select
+                className="ot-input"
+                style={{ width: 200 }}
+                value={opdrachtbevestigingenFilterKlantgroep}
+                onChange={(e) => setOpdrachtbevestigingenFilterKlantgroep(e.target.value)}
+              >
+                <option value="">Alle klantgroepen</option>
+                {opdrachtbevestigingenKlantgroepen.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="ot-input"
+                style={{ width: 200 }}
+                value={opdrachtbevestigingenFilterOpdrachttype}
+                onChange={(e) => setOpdrachtbevestigingenFilterOpdrachttype(e.target.value)}
+              >
+                <option value="">Alle opdrachttypes</option>
+                {opdrachttypes.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.naam}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="ot-input"
+                style={{ width: 180 }}
+                value={opdrachtbevestigingenFilterStatus}
+                onChange={(e) => setOpdrachtbevestigingenFilterStatus(e.target.value)}
+              >
+                <option value="">Alle statussen</option>
+                {OFFERTE_STATUSSEN.map((s) => (
+                  <option key={s.key} value={s.key}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+              {(opdrachtbevestigingenZoekterm || opdrachtbevestigingenFilterKlantgroep || opdrachtbevestigingenFilterOpdrachttype || opdrachtbevestigingenFilterStatus) && (
+                <button
+                  className="ot-btn-ghost"
+                  onClick={() => {
+                    setOpdrachtbevestigingenZoekterm("");
+                    setOpdrachtbevestigingenFilterKlantgroep("");
+                    setOpdrachtbevestigingenFilterOpdrachttype("");
+                    setOpdrachtbevestigingenFilterStatus("");
+                  }}
+                >
+                  Filters wissen
+                </button>
+              )}
+            </div>
+
+            {opdrachtbevestigingenLijstFout && (
+              <div style={{ padding: 14, borderRadius: 10, background: "#FBF2EC", color: "#B14A2E", fontSize: 13, marginBottom: 16 }}>
+                Kon de opdrachtbevestigingen niet laden. Controleer of de opslag is geconfigureerd (zie README, stap "Opslag van instellingen").
+              </div>
+            )}
+
+            {opdrachtbevestigingenLijstBezig && opdrachtbevestigingenLijst.length === 0 && !opdrachtbevestigingenLijstFout && (
+              <div style={{ textAlign: "center", padding: 40, color: "#8A9089", fontSize: 13.5 }}>
+                Bezig met laden…
+              </div>
+            )}
+
+            {!opdrachtbevestigingenLijstBezig && opdrachtbevestigingenLijst.length === 0 && !opdrachtbevestigingenLijstFout && (
+              <div style={{ textAlign: "center", padding: 40, color: "#8A9089", fontSize: 13.5 }}>
+                Nog geen opdrachtbevestigingen opgeslagen.
+              </div>
+            )}
+
+            {opdrachtbevestigingenLijst.length > 0 && gefilterdeOpdrachtbevestigingen.length === 0 && (
+              <div style={{ textAlign: "center", padding: 40, color: "#8A9089", fontSize: 13.5 }}>
+                Geen opdrachtbevestigingen gevonden met deze zoekterm/filters.
+              </div>
+            )}
+
+            {gefilterdeOpdrachtbevestigingen.length > 0 && (
+              <div className="ot-card" style={{ padding: 0, overflow: "hidden" }}>
+                <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: "#F0EEE6", textAlign: "left" }}>
+                      <th style={{ padding: "10px 12px", width: 1 }}>
+                        <input
+                          type="checkbox"
+                          checked={
+                            gepagineerdeOpdrachtbevestigingen.length > 0 &&
+                            gepagineerdeOpdrachtbevestigingen.every((o) => opdrachtbevestigingenSelectie.has(o.id))
+                          }
+                          onChange={() =>
+                            toggleAlleOpdrachtbevestigingenOpPagina(
+                              gepagineerdeOpdrachtbevestigingen.map((o) => o.id),
+                              gepagineerdeOpdrachtbevestigingen.length > 0 &&
+                                gepagineerdeOpdrachtbevestigingen.every((o) => opdrachtbevestigingenSelectie.has(o.id))
+                            )
+                          }
+                          title="Alles op deze pagina (de)selecteren"
+                        />
+                      </th>
+                      <th style={{ padding: "10px 14px", fontWeight: 700, color: "#5B6259" }}>Datum</th>
+                      <th style={{ padding: "10px 14px", fontWeight: 700, color: "#5B6259" }}>Klant(en)</th>
+                      <th style={{ padding: "10px 14px", fontWeight: 700, color: "#5B6259" }}>Opdrachttype</th>
+                      <th style={{ padding: "10px 14px", fontWeight: 700, color: "#5B6259" }}>Status</th>
+                      <th style={{ padding: "10px 14px", fontWeight: 700, color: "#5B6259" }}>Bekeken</th>
+                      <th style={{ padding: "10px 14px", fontWeight: 700, color: "#5B6259" }}>Opgemaakt door</th>
+                      <th style={{ padding: "10px 14px", position: "sticky", right: 0, background: "#F0EEE6" }} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {gepagineerdeOpdrachtbevestigingen.map((o) => {
+                      const statusInfo = offerteStatusInfo(o.status);
+                      return (
+                        <React.Fragment key={o.id}>
+                        <tr
+                          style={{
+                            borderTop: "1px solid #E2E4DF",
+                            background: opdrachtbevestigingenSelectie.has(o.id) ? "#EAF2F8" : "transparent",
+                          }}
+                        >
+                          <td style={{ padding: "10px 12px" }}>
+                            <input
+                              type="checkbox"
+                              checked={opdrachtbevestigingenSelectie.has(o.id)}
+                              onChange={() => toggleOpdrachtbevestigingSelectie(o.id)}
+                            />
+                          </td>
+                          <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>{datumTijd(o.aangemaaktOp)}</td>
+                          <td style={{ padding: "10px 14px" }}>
+                            {o.klantNamen && o.klantNamen.length > 0 ? o.klantNamen.join(", ") : "—"}
+                          </td>
+                          <td style={{ padding: "10px 14px" }}>{o.opdrachttypeNaam || "—"}</td>
+                          <td style={{ padding: "10px 14px" }}>
+                            <select
+                              value={o.status || OFFERTE_STATUS_STANDAARD}
+                              onChange={(e) => wijzigOpdrachtbevestigingStatus(o.id, e.target.value)}
+                              disabled={opdrachtbevestigingStatusBezigId === o.id}
+                              style={{
+                                border: "1px solid " + statusInfo.kleur + "33",
+                                background: statusInfo.achtergrond,
+                                color: statusInfo.kleur,
+                                fontWeight: 600,
+                                fontSize: 12,
+                                borderRadius: 6,
+                                padding: "5px 8px",
+                                cursor: opdrachtbevestigingStatusBezigId === o.id ? "default" : "pointer",
+                              }}
+                            >
+                              {OFFERTE_STATUSSEN.map((s) => (
+                                <option key={s.key} value={s.key}>
+                                  {s.label}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
+                            {o.aantalBekeken > 0 ? (
+                              <span title={o.laatstBekekenIp ? `IP: ${o.laatstBekekenIp}` : undefined}>
+                                <Eye size={12} style={{ verticalAlign: "-2px", marginRight: 4, color: "#2E7D4F" }} />
+                                {datumTijd(o.laatstBekekenOp)}
+                                {o.aantalBekeken > 1 && (
+                                  <span style={{ color: "#8A9089" }}> ({o.aantalBekeken}x)</span>
+                                )}
+                              </span>
+                            ) : (
+                              <span style={{ color: "#A5AA9F" }}>
+                                <EyeOff size={12} style={{ verticalAlign: "-2px", marginRight: 4 }} />
+                                Nog niet bekeken
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ padding: "10px 14px" }}>{o.aangemaaktDoor || "—"}</td>
+                          <td
+                            style={{
+                              padding: "10px 14px",
+                              textAlign: "right",
+                              whiteSpace: "nowrap",
+                              position: "sticky",
+                              right: 0,
+                              background: opdrachtbevestigingenSelectie.has(o.id) ? "#EAF2F8" : "#fff",
+                              boxShadow: "-4px 0 6px -4px rgba(0,0,0,0.15)",
+                            }}
+                          >
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                              <button className="ot-btn-ghost" onClick={() => toggleObLogboek(o.id)}>
+                                <ScrollText size={13} />
+                                Log
+                              </button>
+                              <button className="ot-btn-ghost" onClick={() => openOpdrachtbevestiging(o.id)}>
+                                <FolderOpen size={13} />
+                                Openen
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        {obLogboekOpenId === o.id && (
+                          <tr>
+                            <td colSpan={8} style={{ padding: 0, borderTop: "1px solid #E2E4DF" }}>
+                              <div style={{ padding: "14px 20px", background: "#FAFAF7" }}>
+                                {obLogboekBezig && (
+                                  <span style={{ fontSize: 12.5, color: "#8A9089" }}>Bezig met laden…</span>
+                                )}
+                                {!obLogboekBezig && obLogboekRecord?.fout && (
+                                  <span style={{ fontSize: 12.5, color: "#B14A2E" }}>Kon het logboek niet laden.</span>
+                                )}
+                                {!obLogboekBezig && obLogboekRecord && !obLogboekRecord.fout && (
+                                  <div style={{ display: "grid", gap: 12 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                                      <span style={{ fontSize: 12, fontWeight: 700, color: "#5B6259" }}>Tekenlink:</span>
+                                      <code style={{ fontSize: 11.5, background: "#EFEEE7", padding: "3px 8px", borderRadius: 6 }}>
+                                        {`${window.location.origin}/tekenen/${o.id}`}
+                                      </code>
+                                      <button
+                                        className="ot-btn-ghost"
+                                        onClick={async () => {
+                                          try {
+                                            await navigator.clipboard.writeText(`${window.location.origin}/tekenen/${o.id}`);
+                                          } catch (e) {
+                                            window.prompt("Kopieer deze link handmatig:", `${window.location.origin}/tekenen/${o.id}`);
+                                          }
+                                        }}
+                                      >
+                                        <Link2 size={12} />
+                                        Kopiëren
+                                      </button>
+                                    </div>
+
+                                    {obLogboekRecord.ondertekening ? (
+                                      <div
+                                        style={{
+                                          padding: 12,
+                                          borderRadius: 8,
+                                          background: obLogboekRecord.ondertekening.akkoord ? "#E7F4EC" : "#FBF2EC",
+                                          border: `1px solid ${obLogboekRecord.ondertekening.akkoord ? "#BFE0CC" : "#E2C4B0"}`,
+                                          fontSize: 12.5,
+                                        }}
+                                      >
+                                        <strong>{obLogboekRecord.ondertekening.akkoord ? "Ondertekend (akkoord)" : "Afgewezen (niet akkoord)"}</strong>
+                                        <div style={{ marginTop: 4, color: "#5B6259" }}>
+                                          door {obLogboekRecord.ondertekening.naam} ({obLogboekRecord.ondertekening.email})
+                                          <br />
+                                          op {datumTijd(obLogboekRecord.ondertekening.op)} · IP {obLogboekRecord.ondertekening.ip}
+                                          {obLogboekRecord.ondertekening.opmerking && (
+                                            <>
+                                              <br />
+                                              Opmerking: "{obLogboekRecord.ondertekening.opmerking}"
+                                            </>
+                                          )}
+                                        </div>
+                                        {obLogboekRecord.ondertekening.emailKomtOvereen === false && (
+                                          <div style={{ marginTop: 6, fontSize: 11.5, color: "#8A6A1E", background: "#FBF3DE", borderRadius: 6, padding: "5px 8px" }}>
+                                            ⚠ E-mailadres wijkt af van het bekende contactadres
+                                          </div>
+                                        )}
+                                        {obLogboekRecord.ondertekening.handtekening && (
+                                          <img
+                                            src={obLogboekRecord.ondertekening.handtekening}
+                                            alt="Handtekening"
+                                            style={{ maxWidth: 220, marginTop: 8, background: "#fff", border: "1px solid #E2E4DF", borderRadius: 6 }}
+                                          />
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <span style={{ fontSize: 12.5, color: "#8A9089" }}>Nog niet ondertekend of afgewezen.</span>
+                                    )}
+
+                                    <div>
+                                      <span style={{ fontSize: 12, fontWeight: 700, color: "#5B6259" }}>Logboek</span>
+                                      {(obLogboekRecord.logboek || []).length === 0 ? (
+                                        <div style={{ fontSize: 12, color: "#8A9089", marginTop: 4 }}>Nog geen gebeurtenissen.</div>
+                                      ) : (
+                                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginTop: 6 }}>
+                                          <tbody>
+                                            {[...obLogboekRecord.logboek].reverse().map((entry, i) => (
+                                              <tr key={i} style={{ borderTop: "1px solid #E2E4DF" }}>
+                                                <td style={{ padding: "5px 6px", whiteSpace: "nowrap", color: "#5B6259" }}>
+                                                  {datumTijd(entry.op)}
+                                                </td>
+                                                <td style={{ padding: "5px 6px", fontWeight: 600 }}>{entry.gebeurtenis}</td>
+                                                <td style={{ padding: "5px 6px", color: "#8A9089" }}>
+                                                  {entry.naam ? `${entry.naam} (${entry.email}) · ` : ""}IP {entry.ip}
+                                                </td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                </div>
+              </div>
+            )}
+
+            {gefilterdeOpdrachtbevestigingen.length > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 16, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  {opdrachtbevestigingenTotaalPaginas > 1 && (
+                    <>
+                      <button
+                        className="ot-btn-ghost"
+                        disabled={opdrachtbevestigingenPaginaVeilig === 1}
+                        onClick={() => setOpdrachtbevestigingenPagina((p) => Math.max(1, p - 1))}
+                        style={{ opacity: opdrachtbevestigingenPaginaVeilig === 1 ? 0.4 : 1 }}
+                      >
+                        <ChevronLeft size={14} />
+                      </button>
+                      {Array.from({ length: opdrachtbevestigingenTotaalPaginas }, (_, i) => i + 1).map((p) => (
+                        <button
+                          key={p}
+                          onClick={() => setOpdrachtbevestigingenPagina(p)}
+                          style={{
+                            minWidth: 30,
+                            height: 30,
+                            border: "1px solid #C8CDC5",
+                            background: p === opdrachtbevestigingenPaginaVeilig ? "#1C5D8C" : "#fff",
+                            color: p === opdrachtbevestigingenPaginaVeilig ? "#fff" : "#5B6259",
+                            borderRadius: 8,
+                            fontSize: 12.5,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {p}
+                        </button>
+                      ))}
+                      <button
+                        className="ot-btn-ghost"
+                        disabled={opdrachtbevestigingenPaginaVeilig === opdrachtbevestigingenTotaalPaginas}
+                        onClick={() => setOpdrachtbevestigingenPagina((p) => Math.min(opdrachtbevestigingenTotaalPaginas, p + 1))}
+                        style={{ opacity: opdrachtbevestigingenPaginaVeilig === opdrachtbevestigingenTotaalPaginas ? 0.4 : 1 }}
+                      >
+                        <ChevronRight size={14} />
+                      </button>
+                    </>
+                  )}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12, color: "#8A9089" }}>
+                    {gefilterdeOpdrachtbevestigingen.length} opdrachtbevestiging{gefilterdeOpdrachtbevestigingen.length === 1 ? "" : "en"}
+                    {opdrachtbevestigingenTotaalPaginas > 1 ? ` · pagina ${opdrachtbevestigingenPaginaVeilig} van ${opdrachtbevestigingenTotaalPaginas}` : ""}
+                  </span>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#8A9089" }}>
+                    Per pagina
+                    <select
+                      className="ot-input"
+                      style={{ width: "auto", padding: "5px 8px", fontSize: 12.5 }}
+                      value={opdrachtbevestigingenPaginaGrootte}
+                      onChange={(e) => setOpdrachtbevestigingenPaginaGrootte(e.target.value === "alle" ? "alle" : Number(e.target.value))}
                     >
                       <option value={25}>25</option>
                       <option value={50}>50</option>
@@ -4478,6 +6047,43 @@ export default function OffertetoolApp() {
               );
             })()}
 
+            {gekozenKlanten.length > 0 && (
+              <div
+                className="ot-card"
+                style={{
+                  padding: 18,
+                  marginTop: 20,
+                  background: "#EAF2F8",
+                  borderColor: "#1C5D8C33",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: 12,
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: "#1C2321" }}>
+                    Ook een opdrachtbevestiging nodig voor deze klant?
+                  </div>
+                  <div style={{ fontSize: 12.5, color: "#5B6259", marginTop: 2 }}>
+                    Gebruikt dezelfde klant en diensten — je hoeft alleen nog het opdrachttype en de teksten te kiezen.
+                  </div>
+                </div>
+                <button
+                  className="ot-btn-primary"
+                  onClick={() => {
+                    setOpdrachtbevestigingVanuitOfferteId(huidigeOfferteId);
+                    setStap("opdrachtbevestiging");
+                  }}
+                >
+                  <FileSignature size={15} />
+                  Opdrachtbevestiging maken
+                  <ChevronRight size={15} />
+                </button>
+              </div>
+            )}
+
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20 }}>
               <button className="ot-btn-secondary" onClick={vorige}>
                 <ChevronLeft size={15} />
@@ -4515,6 +6121,221 @@ export default function OffertetoolApp() {
               </div>
             </div>
             </>
+            )}
+          </StapWrapper>
+        )}
+
+        {/* -------------------- OPDRACHTBEVESTIGING -------------------- */}
+        {stap === "opdrachtbevestiging" && (
+          <StapWrapper
+            titel="Opdrachtbevestiging"
+            toelichting="Eerst het type opdracht kiezen (bepaalt welke verplichte paragrafen verschijnen), dan de teksten zelf — net als bij Bijlage: vooraf gevuld met de standaardtekst uit beheer. Verplichte paragrafen kun je hier niet wijzigen (dat doe je centraal via 'Opdrachtbevestiging-teksten beheren'), optionele paragrafen wel — en je kunt er zelf een toevoegen."
+          >
+            {gekozenKlanten.length === 0 ? (
+              <div className="ot-card" style={{ padding: 24, textAlign: "center" }}>
+                <p style={{ fontSize: 13.5, color: "#5B6259", marginBottom: 14 }}>
+                  Kies eerst een klant en diensten — een opdrachtbevestiging gebruikt dezelfde selectie als de offerte.
+                </p>
+                <button className="ot-btn-primary" onClick={() => setStap("klant")}>
+                  <Users size={15} />
+                  Naar Klant
+                </button>
+              </div>
+            ) : opdrachttypes.length === 0 ? (
+              <div className="ot-card" style={{ padding: 24, textAlign: "center" }}>
+                <p style={{ fontSize: 13.5, color: "#5B6259", marginBottom: 14 }}>
+                  Er zijn nog geen opdrachttypes ingericht. Voeg er eerst één toe via "Opdrachtbevestiging-teksten beheren".
+                </p>
+                <button className="ot-btn-primary" onClick={openOpdrachtbevestigingTeksten}>
+                  <ScrollText size={15} />
+                  Opdrachtbevestiging-teksten beheren
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="ot-card" style={{ padding: 18, marginBottom: 22 }}>
+                  <label className="ot-label">Type opdracht (NV COS)</label>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {opdrachttypes.map((t) => (
+                      <button
+                        key={t.id}
+                        className={t.id === gekozenOpdrachttypeId ? "ot-pill actief" : "ot-pill"}
+                        onClick={() => kiesOpdrachttype(t.id)}
+                      >
+                        {t.naam}
+                      </button>
+                    ))}
+                  </div>
+                  <p style={{ fontSize: 12, color: "#8A9089", margin: "10px 0 0" }}>
+                    Wisselen van type vervangt de verplichte paragrafen hieronder door de set die bij dat type hoort
+                    — al ingevulde optionele paragrafen blijven staan.
+                  </p>
+                </div>
+
+                {gekozenOpdrachttypeId && (
+                  <>
+                    <div className="ot-cat-koptekst">
+                      <span>
+                        Verplichte paragrafen —{" "}
+                        {opdrachttypes.find((t) => t.id === gekozenOpdrachttypeId)?.naam}
+                      </span>
+                    </div>
+                    <div style={{ display: "grid", gap: 14, marginBottom: 8 }}>
+                      {(opdrachtbevestigingParagrafen.verplicht || []).length === 0 && (
+                        <p style={{ fontSize: 12.5, color: "#8A9089" }}>
+                          Dit opdrachttype heeft nog geen verplichte paragrafen ingesteld.
+                        </p>
+                      )}
+                      {(opdrachtbevestigingParagrafen.verplicht || []).map((p) => (
+                        <div key={p.id} className="ot-card" style={{ padding: 18 }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
+                            <span style={{ fontSize: 14, fontWeight: 700 }}>{p.titel}</span>
+                            <span
+                              style={{
+                                fontSize: 10.5,
+                                fontWeight: 700,
+                                textTransform: "uppercase",
+                                letterSpacing: ".03em",
+                                padding: "3px 9px",
+                                borderRadius: 20,
+                                color: "#B23B3B",
+                                background: "#FBEAEA",
+                                border: "1px solid #B23B3B33",
+                                flexShrink: 0,
+                              }}
+                            >
+                              Verplicht
+                            </span>
+                          </div>
+                          {p.tekst?.trim() ? (
+                            <div style={{ fontSize: 13, color: "#3A4038", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{p.tekst}</div>
+                          ) : (
+                            <div style={{ fontSize: 13, color: "#8A9089", fontStyle: "italic" }}>
+                              Nog geen tekst ingevuld voor dit type — vul dit in via "Opdrachtbevestiging-teksten
+                              beheren".
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="ot-cat-koptekst" style={{ marginTop: 26 }}>
+                      <span>Extra paragrafen (optioneel)</span>
+                    </div>
+                    <div style={{ display: "grid", gap: 14 }}>
+                      {(opdrachtbevestigingParagrafen.optioneel || []).map((p) => (
+                        <div key={p.id} className="ot-card" style={{ padding: 18 }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
+                            <input
+                              className="ot-input"
+                              style={{ fontWeight: 700, flex: 1 }}
+                              value={p.titel}
+                              onChange={(e) => bijwerkRecordParagraaf(p.id, "titel", e.target.value)}
+                            />
+                            <button className="ot-btn-ghost" onClick={() => verwijderRecordParagraaf(p.id)}>
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                          <textarea
+                            className="ot-input"
+                            rows={3}
+                            placeholder="Eigen tekst over honorarium, betaaltermijn, etc.…"
+                            value={p.tekst}
+                            onChange={(e) => bijwerkRecordParagraaf(p.id, "tekst", e.target.value)}
+                          />
+                        </div>
+                      ))}
+                      <button className="ot-btn-ghost" onClick={voegRecordParagraafToe}>
+                        <PlusCircle size={13} />
+                        Extra paragraaf toevoegen
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
+                  <span>Klant &amp; diensten (overgenomen)</span>
+                </div>
+                <div style={{ display: "grid", gap: 10 }}>
+                  {gekozenKlanten.map((klant) => {
+                    const regels = regelsVoorKlant(klant.id);
+                    const totaal = regels.reduce((s, r) => s + r.subtotaal, 0) * 1.21;
+                    return (
+                      <div
+                        key={klant.id}
+                        className="ot-card"
+                        style={{ padding: 18, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 14 }}>{klant.naam}</div>
+                          <div style={{ fontSize: 12.5, color: "#5B6259", marginTop: 2 }}>
+                            {regels.length} dienst{regels.length === 1 ? "" : "en"} geselecteerd · totaal {currency(totaal)} —
+                            zelfde selectie als bij Diensten/Prijzen
+                          </div>
+                        </div>
+                        <button className="ot-btn-ghost" onClick={() => setStap("diensten")}>
+                          Wijzig bij Diensten kiezen
+                          <ChevronRight size={13} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 26 }}>
+                  <button className="ot-btn-secondary" onClick={() => setStap("prijzen")}>
+                    <ChevronLeft size={15} />
+                    Terug naar prijzen
+                  </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 12, color: "#8A9089" }}>
+                      {opdrachtbevestigingOpslaanStatus === "bezig" && "Opdrachtbevestiging opslaan…"}
+                      {opdrachtbevestigingOpslaanStatus === "opgeslagen" && (
+                        <>
+                          <Save size={12} style={{ verticalAlign: "-1px", marginRight: 4 }} />
+                          Opgeslagen
+                        </>
+                      )}
+                      {opdrachtbevestigingOpslaanStatus === "fout" && (
+                        <span style={{ color: "#B14A2E" }}>Opslaan mislukt (opdrachtbevestiging blijft wel bruikbaar)</span>
+                      )}
+                    </span>
+                    <button
+                      className="ot-btn-secondary"
+                      onClick={slaOpdrachtbevestigingOp}
+                      disabled={opdrachtbevestigingOpslaanStatus === "bezig" || !gekozenOpdrachttypeId}
+                    >
+                      <Save size={15} />
+                      Opslaan
+                    </button>
+                    <button
+                      className="ot-btn-secondary"
+                      onClick={kopieerOpdrachtbevestigingTekenLink}
+                      disabled={!gekozenOpdrachttypeId}
+                    >
+                      {tekenLinkGekopieerdOpdrachtbevestiging ? <Check size={15} /> : <Link2 size={15} />}
+                      {tekenLinkGekopieerdOpdrachtbevestiging ? "Link gekopieerd" : "Tekenlink kopiëren"}
+                    </button>
+                    <button
+                      className="ot-btn-primary"
+                      onClick={afdrukkenOpdrachtbevestiging}
+                      disabled={pdfBezigOpdrachtbevestiging || !gekozenOpdrachttypeId}
+                    >
+                      {pdfBezigOpdrachtbevestiging ? (
+                        <Loader2 size={15} className="ot-spin" style={{ animation: "spin 1s linear infinite" }} />
+                      ) : (
+                        <Printer size={15} />
+                      )}
+                      {pdfBezigOpdrachtbevestiging ? "PDF maken…" : "Genereren & PDF bekijken"}
+                    </button>
+                  </div>
+                </div>
+                {!gekozenOpdrachttypeId && (
+                  <p style={{ fontSize: 12, color: "#8A6A1E", marginTop: 10, textAlign: "right" }}>
+                    Kies eerst een opdrachttype hierboven.
+                  </p>
+                )}
+              </>
             )}
           </StapWrapper>
         )}
@@ -4579,12 +6400,13 @@ function StapWrapper({ titel, toelichting, children }) {
 // naar "Voorwaarden beheren" kunt switchen zonder eerst terug te gaan naar
 // Instellingen. Het scherm waar je al op staat wordt gemarkeerd en is niet
 // aanklikbaar.
-function OverigBeheerBalk({ actief, onCatalogus, onTeksten, onVoorwaarden, onRoadmap }) {
+function OverigBeheerBalk({ actief, onCatalogus, onTeksten, onVoorwaarden, onRoadmap, onOpdrachtbevestigingTeksten }) {
   const items = [
     { key: "catalogus", label: "Diensten beheren", icon: Layers, onClick: onCatalogus },
     { key: "teksten", label: "Teksten beheren", icon: BookOpen, onClick: onTeksten },
     { key: "voorwaarden", label: "Voorwaarden beheren", icon: FileText, onClick: onVoorwaarden },
     { key: "roadmap", label: "Roadmap beheren", icon: Milestone, onClick: onRoadmap },
+    { key: "opdrachtbevestiging-teksten", label: "Opdrachtbevestiging-teksten", icon: ScrollText, onClick: onOpdrachtbevestigingTeksten },
   ];
   return (
     <div className="ot-card" style={{ padding: 20, marginBottom: 20 }}>
@@ -4625,6 +6447,42 @@ function StapNavigatie({ onVorige, onVolgende, volgendeDisabled, volgendeLabel }
         {volgendeLabel}
         <ChevronRight size={15} />
       </button>
+    </div>
+  );
+}
+
+// Categorie-select voor de taak-instellingen (offerte + opdrachtbevestiging) — laat de
+// bekende cr283_soortactiecategorie-codes zien (TAAK_CATEGORIE_OPTIES), met "Andere code…"
+// voor codes die daar nog niet in staan (vrij numeriek veld).
+function TaakCategorieSelect({ waarde, onChange }) {
+  const bekend = TAAK_CATEGORIE_OPTIES.some((o) => o.code === Number(waarde));
+  return (
+    <div>
+      <select
+        className="ot-input"
+        value={bekend ? String(waarde) : "andere"}
+        onChange={(e) => {
+          if (e.target.value === "andere") return;
+          onChange(Number(e.target.value));
+        }}
+      >
+        {TAAK_CATEGORIE_OPTIES.map((o) => (
+          <option key={o.code} value={o.code}>
+            {o.label} ({o.code})
+          </option>
+        ))}
+        <option value="andere">Andere code…</option>
+      </select>
+      {!bekend && (
+        <input
+          className="ot-input"
+          type="number"
+          style={{ marginTop: 8 }}
+          placeholder="Code (cr283_soortactiecategorie)"
+          value={waarde ?? ""}
+          onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+        />
+      )}
     </div>
   );
 }
