@@ -38,6 +38,23 @@ function veiligeBlobNaam(sleutel) {
   return sleutel.replace(/[^a-zA-Z0-9-_]/g, "_");
 }
 
+// Whitelist van sleutels die de tool daadwerkelijk gebruikt (zie de opslagGet/opslagSet-
+// aanroepen in src/App.jsx). Voorkomt dat dit generieke endpoint misbruikt wordt om
+// willekeurige data onder een zelfgekozen sleutel weg te schrijven.
+const TOEGESTANE_SLEUTELS = new Set([
+  "afzender",
+  "logo",
+  "favicon",
+  "bijlage-algemeen",
+  "bijlage-per-dienst",
+  "bijlage-per-klant",
+  "mailtekst",
+  "algemenevoorwaarden",
+  "roadmap",
+  "dienstencatalogus",
+  "standaardteksten",
+]);
+
 module.exports = async function (context, req) {
   const sleutel = context.bindingData.sleutel;
 
@@ -46,6 +63,25 @@ module.exports = async function (context, req) {
       status: 400,
       headers: { "Content-Type": "application/json" },
       body: { error: "Geen sleutel opgegeven." },
+    };
+    return;
+  }
+
+  if (!TOEGESTANE_SLEUTELS.has(sleutel)) {
+    context.res = {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+      body: { error: "Onbekende instellingensleutel." },
+    };
+    return;
+  }
+
+  // CSRF-drempel (#10): cross-site formulieren kunnen deze header niet meesturen.
+  if ((req.method === "PUT" || req.method === "DELETE") && req.headers["x-requested-with"] !== "offertetool") {
+    context.res = {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+      body: { error: "Ongeldig verzoek." },
     };
     return;
   }
@@ -116,7 +152,7 @@ module.exports = async function (context, req) {
     context.res = {
       status: 500,
       headers: { "Content-Type": "application/json" },
-      body: { error: "Onverwachte fout bij de opslag.", detail: String(err) },
+      body: { error: "Er ging iets mis. Probeer het later opnieuw." },
     };
   }
 };

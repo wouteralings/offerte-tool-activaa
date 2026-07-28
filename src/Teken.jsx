@@ -25,6 +25,8 @@ export default function TekenPagina({ id }) {
   const laatstePuntRef = useRef(null);
   const [handtekeningLeeg, setHandtekeningLeeg] = useState(true);
 
+  const [pdfBezig, setPdfBezig] = useState(false);
+
   function canvasPositie(canvas, event) {
     const rect = canvas.getBoundingClientRect();
     const punt = event.touches ? event.touches[0] : event;
@@ -199,7 +201,6 @@ export default function TekenPagina({ id }) {
     </div>
   );
 
-  const [pdfBezig, setPdfBezig] = useState(false);
   async function downloadPdf() {
     setPdfBezig(true);
     try {
@@ -480,6 +481,11 @@ export default function TekenPagina({ id }) {
                       alt="Handtekening"
                       style={{ maxWidth: 260, background: "#fff", border: "1px solid #E2E4DF", borderRadius: 6 }}
                     />
+                  </div>
+                )}
+                {definitieveOndertekening.emailKomtOvereen === false && (
+                  <div style={{ marginTop: 10, fontSize: 12, color: "#8A6A1E", background: "#FBF3DE", borderRadius: 6, padding: "8px 10px" }}>
+                    Let op: dit e-mailadres wijkt af van het bij ons bekende contactadres.
                   </div>
                 )}
                 <div style={{ marginTop: 8, fontSize: 11.5, color: "#8A9089" }}>

@@ -83,7 +83,7 @@ module.exports = async function (context, req) {
     context.res = {
       status: 500,
       headers: { "Content-Type": "application/json" },
-      body: { error: "Onverwachte fout bij de opslag.", detail: String(err) },
+      body: { error: "Er ging iets mis. Probeer het later opnieuw." },
     };
   }
 };

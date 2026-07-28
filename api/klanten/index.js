@@ -54,6 +54,16 @@ module.exports = async function (context, req) {
     const token = await haalDynamicsToken();
 
     const zoekterm = (req.query.zoek || "").trim();
+
+    if (zoekterm.length > 100) {
+      context.res = {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+        body: { error: "Zoekterm te lang." },
+      };
+      return;
+    }
+
     // Enkele aanhalingstekens moeten verdubbeld worden binnen een OData-tekstwaarde.
     const veilig = zoekterm.replace(/'/g, "''");
 
@@ -91,7 +101,7 @@ module.exports = async function (context, req) {
       context.res = {
         status: 502,
         headers: { "Content-Type": "application/json" },
-        body: { error: "Ophalen bij Dynamics is mislukt.", detail: tekst },
+        body: { error: "Ophalen bij Dynamics is mislukt." },
       };
       return;
     }
@@ -129,7 +139,7 @@ module.exports = async function (context, req) {
     context.res = {
       status: 500,
       headers: { "Content-Type": "application/json" },
-      body: { error: "Onverwachte fout bij ophalen klanten.", detail: String(err) },
+      body: { error: "Er ging iets mis. Probeer het later opnieuw." },
     };
   }
 };

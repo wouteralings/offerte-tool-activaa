@@ -49,6 +49,16 @@ module.exports = async function (context, req) {
   }
 
   try {
+    // CSRF-drempel (#10): cross-site formulieren kunnen deze header niet meesturen.
+    if ((req.method === "PUT" || req.method === "DELETE") && req.headers["x-requested-with"] !== "offertetool") {
+      context.res = {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+        body: { error: "Ongeldig verzoek." },
+      };
+      return;
+    }
+
     const containerClient = await haalContainerClient();
     const blobClient = containerClient.getBlockBlobClient(veiligeBlobNaam(id));
 
@@ -137,7 +147,7 @@ module.exports = async function (context, req) {
     context.res = {
       status: 500,
       headers: { "Content-Type": "application/json" },
-      body: { error: "Onverwachte fout bij de opslag.", detail: String(err) },
+      body: { error: "Er ging iets mis. Probeer het later opnieuw." },
     };
   }
 };

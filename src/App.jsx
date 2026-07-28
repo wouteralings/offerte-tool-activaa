@@ -338,7 +338,7 @@ async function opslagSet(sleutel, waarde) {
   try {
     const res = await fetch(`/api/instellingen/${encodeURIComponent(sleutel)}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Requested-With": "offertetool" },
       body: JSON.stringify({ value: waarde }),
     });
     if (!res.ok) {
@@ -360,7 +360,10 @@ async function opslagDelete(sleutel) {
     return;
   }
   try {
-    await fetch(`/api/instellingen/${encodeURIComponent(sleutel)}`, { method: "DELETE" });
+    await fetch(`/api/instellingen/${encodeURIComponent(sleutel)}`, {
+      method: "DELETE",
+      headers: { "X-Requested-With": "offertetool" },
+    });
   } catch (e) {
     // niets opgeslagen om te verwijderen
   }
@@ -470,7 +473,7 @@ async function offerteOpslaan(id, payload) {
   }
   const res = await fetch(`/api/offerte/${encodeURIComponent(id)}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Requested-With": "offertetool" },
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -494,7 +497,12 @@ async function offertesVerwijderen(ids) {
     return;
   }
   await Promise.all(
-    ids.map((id) => fetch(`/api/offerte/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => null))
+    ids.map((id) =>
+      fetch(`/api/offerte/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        headers: { "X-Requested-With": "offertetool" },
+      }).catch(() => null)
+    )
   );
 }
 
@@ -3189,6 +3197,11 @@ export default function OffertetoolApp() {
                                             </>
                                           )}
                                         </div>
+                                        {logboekRecord.ondertekening.emailKomtOvereen === false && (
+                                          <div style={{ marginTop: 6, fontSize: 11.5, color: "#8A6A1E", background: "#FBF3DE", borderRadius: 6, padding: "5px 8px" }}>
+                                            ⚠ E-mailadres wijkt af van het bekende contactadres
+                                          </div>
+                                        )}
                                         {logboekRecord.ondertekening.handtekening && (
                                           <img
                                             src={logboekRecord.ondertekening.handtekening}

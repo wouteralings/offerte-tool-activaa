@@ -13,10 +13,16 @@ function escapeHtml(tekst) {
 }
 
 // Platte, door de gebruiker (evt. bewerkte) tekst omzetten naar simpele HTML: regeleinden
-// worden <br/>, en elke http(s)-link wordt automatisch klikbaar gemaakt.
+// worden <br/>, en elke http(s)-link wordt automatisch klikbaar gemaakt. Kleuren staan
+// bewust overal expliciet inline (i.p.v. te vertrouwen op een mailclient-standaard) — anders
+// kan een mailprogramma met een donker thema (Outlook/Gmail dark mode) de tekst en/of link
+// onbedoeld wit-op-wit (onzichtbaar) weergeven.
 function tekstNaarHtml(tekst) {
   const geescaped = escapeHtml(tekst);
-  const metLinks = geescaped.replace(/(https?:\/\/[^\s<]+)/g, (url) => `<a href="${url}">${url}</a>`);
+  const metLinks = geescaped.replace(
+    /(https?:\/\/[^\s<]+)/g,
+    (url) => `<a href="${url}" style="color:#1C5D8C; text-decoration:underline;">${url}</a>`
+  );
   return metLinks.replace(/\n/g, "<br/>");
 }
 
@@ -43,7 +49,7 @@ module.exports = async function (context, req) {
   try {
     const token = await haalGraphToken();
 
-    const htmlBody = `<div>${tekstNaarHtml(tekst)}</div>`;
+    const htmlBody = `<div style="color:#1C2321; background-color:#ffffff; font-family:Arial, Helvetica, sans-serif; font-size:14px;">${tekstNaarHtml(tekst)}</div>`;
 
     const bericht = {
       message: {

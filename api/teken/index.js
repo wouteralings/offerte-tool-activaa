@@ -1,5 +1,6 @@
 const { BlobServiceClient } = require("@azure/storage-blob");
 const { verwerkOndertekeningNaSignering, genereerOffertePdf } = require("../_gedeeld/onboarding");
+const { magDoor } = require("../_gedeeld/ratelimit");
 
 // Zelfde container/blob-indeling als api/offerte, zodat dit gewoon dezelfde offerte-records
 // leest en bijwerkt — deze Function is puur een publiek, anoniem toegankelijk "loket" erbovenop.
@@ -49,6 +50,16 @@ module.exports = async function (context, req) {
     return;
   }
 
+  const ipVoorLimiet = haalClientIp(req);
+  if (!(await magDoor(ipVoorLimiet))) {
+    context.res = {
+      status: 429,
+      headers: { "Content-Type": "application/json" },
+      body: { error: "Te veel verzoeken. Probeer het over een minuut opnieuw." },
+    };
+    return;
+  }
+
   try {
     const containerClient = await haalContainerClient();
     const blobClient = containerClient.getBlockBlobClient(veiligeBlobNaam(id));
@@ -63,7 +74,7 @@ module.exports = async function (context, req) {
     const tekst = await streamNaarTekst(downloadResponse.readableStreamBody);
     const record = JSON.parse(tekst);
     const nu = new Date().toISOString();
-    const ip = haalClientIp(req);
+    const ip = ipVoorLimiet;
 
     if (req.method === "GET") {
       // Elke keer openen loggen (view-tracking, zoals bij DocuSign) — blokkeert de respons niet
@@ -99,7 +110,7 @@ module.exports = async function (context, req) {
           context.res = {
             status: 500,
             headers: { "Content-Type": "application/json" },
-            body: { error: "PDF genereren is mislukt.", detail: String(e) },
+            body: { error: "PDF genereren is mislukt." },
           };
         }
         return;
@@ -173,6 +184,13 @@ module.exports = async function (context, req) {
         ip,
       });
 
+      // Niet-blokkerende check (#6): wijkt het ingevulde e-mailadres af van het bij ons
+      // bekende contactadres van de klant? Wordt alleen als signaal meegegeven — de
+      // ondertekening zelf wordt hierdoor niet tegengehouden, dit is geen verificatie.
+      const bekendeKlant = (record.data?.gekozenKlanten || [])[0];
+      const emailKomtOvereen = !bekendeKlant?.email || bekendeKlant.email.toLowerCase() === email.toLowerCase();
+      record.ondertekening.emailKomtOvereen = emailKomtOvereen;
+
       const buffer = Buffer.from(JSON.stringify(record), "utf-8");
       await blobClient.upload(buffer, buffer.length, { overwrite: true });
 
@@ -190,7 +208,7 @@ module.exports = async function (context, req) {
 
       context.res = {
         headers: { "Content-Type": "application/json" },
-        body: { ondertekening: record.ondertekening, status: record.status },
+        body: { ondertekening: record.ondertekening, status: record.status, emailKomtOvereen },
       };
       return;
     }
@@ -209,7 +227,7 @@ module.exports = async function (context, req) {
     context.res = {
       status: 500,
       headers: { "Content-Type": "application/json" },
-      body: { error: "Onverwachte fout.", detail: String(err) },
+      body: { error: "Er ging iets mis. Probeer het later opnieuw." },
     };
   }
 };
