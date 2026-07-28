@@ -228,7 +228,8 @@ function nieuwSchrijver(doc, fonts) {
 }
 
 function euro(bedrag) {
-  return "€ " + Number(bedrag || 0).toFixed(2).replace(".", ",");
+  const opgemaakt = Number(bedrag || 0).toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return "€ " + opgemaakt;
 }
 
 // Probeert het logo (data-URL) als PNG/JPEG in te bedden. SVG's en andere
@@ -456,7 +457,13 @@ async function genereerOffertePdf(record) {
       groep.items.forEach((r) => {
         // Dienstnaam mag omslaan (lange namen liepen anders door tot in de
         // aantal-kolom) — de andere kolommen blijven op de eerste regel staan.
-        const naamBreedte = xAantal - MARGE - 20;
+        // De beschikbare breedte houdt rekening met de daadwerkelijke breedte
+        // van de aantal-tekst op déze regel (bijv. "12 maand" is breder dan
+        // "1 traject") — een vast vrij te houden stuk was soms te smal,
+        // waardoor de aantal-tekst over het einde van de dienstnaam heen viel.
+        const aantalTekst = `${r.aantal} ${r.eenheid || ""}`.trim();
+        const aantalBreedte = regular.widthOfTextAtSize(aantalTekst, 11.5);
+        const naamBreedte = xAantal - MARGE - aantalBreedte - 24;
         const naamRegels = verdeelInRegels(r.naam, bold, 12, naamBreedte);
         const rijHoogte = Math.max(20, naamRegels.length * 15 + 5);
         s.nieuwePaginaIndienNodig(rijHoogte);
@@ -464,7 +471,7 @@ async function genereerOffertePdf(record) {
         naamRegels.forEach((regelTekst, i) => {
           s.tekstOpY(regelTekst, MARGE, rijY - i * 15, { size: 12, font: bold, kleur: KLEUR.primair });
         });
-        s.tekstOpY(`${r.aantal} ${r.eenheid || ""}`.trim(), xAantal, rijY, { size: 11.5, kleur: KLEUR.primair, uitlijning: "rechts", rechterX: xAantal });
+        s.tekstOpY(aantalTekst, xAantal, rijY, { size: 11.5, kleur: KLEUR.primair, uitlijning: "rechts", rechterX: xAantal });
         const prijsTekst = r.opAanvraag ? "op aanvraag" : r.opNacalculatie ? "nacalculatie" : euro(r.prijs);
         s.tekstOpY(prijsTekst, xPrijs, rijY, { size: 11.5, kleur: KLEUR.primair, uitlijning: "rechts", rechterX: xPrijs });
         const subtotaalTekst = r.opAanvraag || r.opNacalculatie ? "—" : euro(r.subtotaal);
@@ -508,7 +515,6 @@ async function genereerOffertePdf(record) {
       s.huidigePagina().drawLine({ start: { x: xLink, y: yLink - 1.5 }, end: { x: xLink + labelBreedte, y: yLink - 1.5 }, thickness: 0.6, color: KLEUR.blauw });
       s.tekstOpY(na, xLink + labelBreedte, yLink, { size: 10, kleur: KLEUR.zwak });
       s.setY(yLink - 13);
-      s.regel(algemeneVoorwaarden.url, { size: 8.5, kleur: KLEUR.zwak, ruimteNa: 4 });
     }
   });
 
