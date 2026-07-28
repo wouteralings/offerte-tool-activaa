@@ -1,5 +1,5 @@
-const { haalGraphToken, genereerOffertePdf } = require("../_gedeeld/onboarding.js");
-const { haalOfferteRecord } = require("../_gedeeld/offertes-opslag.js");
+const { haalGraphToken, genereerOffertePdf, genereerOpdrachtbevestigingPdf } = require("../_gedeeld/onboarding.js");
+const { haalDocumentRecord } = require("../_gedeeld/offertes-opslag.js");
 
 // Vast afzenderadres — een gedeelde/functionele mailbox, geen persoonlijk account. Kan later
 // eventueel een omgevingsvariabele worden als dit ooit moet wisselen.
@@ -35,9 +35,11 @@ module.exports = async function (context, req) {
 
   const invoer = req.body || {};
   const naar = (invoer.naar || "").trim();
-  const onderwerp = (invoer.onderwerp || "Offerte").trim();
+  const onderwerp = (invoer.onderwerp || "Bericht").trim();
   const tekst = (invoer.tekst || "").trim();
-  const offerteId = (invoer.offerteId || "").trim();
+  // documentId is de generieke naam (werkt voor zowel offerte als opdrachtbevestiging);
+  // offerteId blijft ondersteund voor compatibiliteit met eventuele oudere aanroepen.
+  const documentId = (invoer.documentId || invoer.offerteId || "").trim();
   // Cc: bijv. de maker van de offerte en/of een handmatig toegevoegd adres — optioneel,
   // dus een lege/ontbrekende lijst is prima.
   const cc = Array.isArray(invoer.cc)
@@ -71,30 +73,32 @@ module.exports = async function (context, req) {
       bericht.message.ccRecipients = cc.map((adres) => ({ emailAddress: { address: adres } }));
     }
 
-    // De offerte-PDF als bijlage meesturen (zelfde generator/opmaak als de tekenlink en
-    // "Afdrukken / opslaan als PDF") — puur een extra gemak naast de tekenlink die al in de
-    // hoofdtekst staat, dus dit mag het versturen van de mail zelf nooit blokkeren. Lukt het
-    // niet (offerte nog niet opgeslagen, PDF-generatie mislukt), dan gaat de mail gewoon zonder
-    // bijlage de deur uit en wordt de fout alleen gelogd.
+    // Het document (offerte of opdrachtbevestiging) als PDF-bijlage meesturen (zelfde
+    // generator/opmaak als de tekenlink en "Afdrukken / opslaan als PDF") — puur een extra
+    // gemak naast de tekenlink die al in de hoofdtekst staat, dus dit mag het versturen van
+    // de mail zelf nooit blokkeren. Lukt het niet (document nog niet opgeslagen, PDF-generatie
+    // mislukt), dan gaat de mail gewoon zonder bijlage de deur uit en wordt de fout alleen gelogd.
     let pdfBijgevoegd = false;
-    if (offerteId) {
+    if (documentId) {
       try {
-        const record = await haalOfferteRecord(offerteId);
-        if (record) {
-          const pdfBytes = await genereerOffertePdf(record);
-          const klantnaam = (record.klantNamen || [])[0] || "offerte";
+        const gevonden = await haalDocumentRecord(documentId);
+        if (gevonden) {
+          const { record, soort } = gevonden;
+          const documentLabel = soort === "opdrachtbevestiging" ? "Opdrachtbevestiging" : "Offerte";
+          const pdfBytes = soort === "opdrachtbevestiging" ? await genereerOpdrachtbevestigingPdf(record) : await genereerOffertePdf(record);
+          const klantnaam = (record.klantNamen || [])[0] || documentLabel.toLowerCase();
           const veiligeNaam = klantnaam.replace(/[\\/:*?"<>|]/g, "-").trim();
           bericht.message.attachments = [
             {
               "@odata.type": "#microsoft.graph.fileAttachment",
-              name: `Offerte - ${veiligeNaam}.pdf`,
+              name: `${documentLabel} - ${veiligeNaam}.pdf`,
               contentType: "application/pdf",
               contentBytes: Buffer.from(pdfBytes).toString("base64"),
             },
           ];
           pdfBijgevoegd = true;
         } else {
-          context.log.error(`verstuur-mail: offerte ${offerteId} niet gevonden, mail gaat zonder PDF-bijlage.`);
+          context.log.error(`verstuur-mail: document ${documentId} niet gevonden, mail gaat zonder PDF-bijlage.`);
         }
       } catch (e) {
         context.log.error("verstuur-mail: PDF-bijlage genereren mislukt, mail gaat zonder bijlage:", e);

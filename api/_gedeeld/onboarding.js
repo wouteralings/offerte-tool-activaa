@@ -675,11 +675,11 @@ function tekenParagrafen(s, fonts, paragrafen) {
   });
 }
 
-// Zelfde opbouw/stijl als genereerOffertePdf (logo, briefhoofd, Aan/Namens, dienstentabel,
-// totalen, voorwaarden, ondertekeningsbewijs), met twee verschillen: de kop toont
-// "Opdrachtbevestiging" + het gekozen opdrachttype (NV COS), en direct na de inleiding
-// worden de verplichte + optionele paragrafen van dat type getekend — er is bewust geen
-// roadmap/bijlage-toelichting sectie, die horen alleen bij de offerte.
+// Zelfde volledige opbouw/stijl als genereerOffertePdf (logo, briefhoofd, Aan/Namens,
+// "Speciaal voor"-vak, dienstentabel, totalen, voorwaarden, roadmap, bijlage-toelichting,
+// ondertekeningsbewijs) — de enige verschillen zijn de kop ("Opdrachtbevestiging" + het
+// gekozen opdrachttype/NV COS) en de verplichte + optionele paragrafen van dat type, die
+// direct na de inleiding/"Speciaal voor"-vak worden getekend.
 async function genereerOpdrachtbevestigingPdf(record) {
   const { doc, fonts } = await nieuwPdfDocument();
   const { regular, bold, serifBold } = fonts;
@@ -690,6 +690,10 @@ async function genereerOpdrachtbevestigingPdf(record) {
   const afzender = data.afzender || {};
   const namens = data.namens || {};
   const algemeneVoorwaarden = data.algemeneVoorwaarden || {};
+  const klantToelichtingen = data.klantToelichtingen || {};
+  const algemeneToelichting = data.algemeneToelichting || "";
+  const bijlageToelichtingen = data.bijlageToelichtingen || {};
+  const roadmap = data.roadmap;
   const paragrafen = data.paragrafen || { verplicht: [], optioneel: [] };
   const opdrachttypeNaam = data.opdrachttypeNaam || record.opdrachttypeNaam || "";
   const rechterRand = MARGE + KOLOM_BREEDTE;
@@ -761,6 +765,23 @@ async function genereerOpdrachtbevestigingPdf(record) {
     // Inleiding (zelfde afzender-inleiding als bij offerte).
     if ((afzender.inleiding || "").trim()) {
       s.paragraaf(afzender.inleiding, { size: 10.5, kleur: KLEUR.primair, ruimteNa: 11 });
+    }
+
+    // "Speciaal voor {klant}"-vak — zelfde opzet als bij de offerte.
+    const toelichtingKlant = (klantToelichtingen[klant.id] || "").trim();
+    if (toelichtingKlant) {
+      const lijnen = verdeelInRegels(toelichtingKlant, regular, 10, KOLOM_BREEDTE - 32);
+      const boxHoogte = 18 + lijnen.length * 14 + 11;
+      s.nieuwePaginaIndienNodig(boxHoogte + 13);
+      const boxBovenY = s.huidigeY();
+      s.huidigePagina().drawRectangle({ x: MARGE, y: boxBovenY - boxHoogte, width: KOLOM_BREEDTE, height: boxHoogte, color: KLEUR.blauwLicht });
+      s.tekstOpY(`Speciaal voor ${klant.naam}`, MARGE + 16, boxBovenY - 18, { size: 9, font: bold, kleur: KLEUR.blauw });
+      let yToe = boxBovenY - 33;
+      lijnen.forEach((l) => {
+        s.tekstOpY(l, MARGE + 16, yToe, { size: 10, kleur: KLEUR.primair });
+        yToe -= 14;
+      });
+      s.setY(boxBovenY - boxHoogte - 15);
     }
 
     // Verplichte + optionele paragrafen — de kern van de opdrachtbevestiging.
@@ -843,6 +864,79 @@ async function genereerOpdrachtbevestigingPdf(record) {
       s.setY(yLink - 12);
     }
   });
+
+  // ------------------------------------------------------------------
+  // Roadmap — eigen pagina, 2-koloms grid van faskaarten. Zelfde opzet als bij de offerte.
+  // ------------------------------------------------------------------
+  if (roadmap && (roadmap.fases || []).length > 0) {
+    s.nieuwePagina();
+    const kopY = s.huidigeY();
+    s.paragraaf(roadmap.titel || "Planning & aanpak", {
+      size: 18,
+      font: serifBold,
+      kleur: KLEUR.primair,
+      x: MARGE,
+      maxBreedte: logo ? KOLOM_BREEDTE - 160 : KOLOM_BREEDTE,
+      regelHoogte: 20,
+      ruimteNa: 5,
+    });
+    const logoHoogte2 = tekenLogoRechtsboven(s.huidigePagina(), logo, kopY + 4);
+    if (logoHoogte2) s.setY(Math.min(s.huidigeY(), kopY + 4 - logoHoogte2 - 6));
+
+    const kolomGap = 18;
+    const kolomBreedte = (KOLOM_BREEDTE - kolomGap) / 2;
+    const fases = roadmap.fases;
+    for (let i = 0; i < fases.length; i += 2) {
+      const rijFases = [fases[i], fases[i + 1]].filter(Boolean);
+      const hoogtes = rijFases.map((f) => berekenFaseHoogte(f, fonts, kolomBreedte - 28));
+      const eigenVakHoogtes = rijFases.map((f) => berekenResultaatVakHoogte(f, bold, kolomBreedte - 24));
+      const gedeeldeVakHoogte = Math.max(0, ...eigenVakHoogtes);
+      const kaartHoogte = Math.max(...hoogtes.map((h, idx) => h + Math.max(0, gedeeldeVakHoogte - eigenVakHoogtes[idx])));
+      const rijHoogte = kaartHoogte + 12;
+      s.nieuwePaginaIndienNodig(rijHoogte + 4);
+      const rijBovenY = s.huidigeY() - 13;
+      rijFases.forEach((fase, kol) => {
+        const x = MARGE + kol * (kolomBreedte + kolomGap);
+        tekenFaseKaart(s.huidigePagina(), fase, fonts, x, rijBovenY, kolomBreedte, kaartHoogte, gedeeldeVakHoogte);
+      });
+      s.setY(rijBovenY - rijHoogte + 13);
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Bijlage — toelichting per onderdeel — eigen pagina. Zelfde opzet als bij de offerte.
+  // ------------------------------------------------------------------
+  const eersteRegelsLijst = Object.values(regelsPerKlant)[0] || [];
+  const heeftBijlageToelichting = eersteRegelsLijst.some((r) => (bijlageToelichtingen[r.id] || "").trim() !== "");
+  if (algemeneToelichting.trim() !== "" || heeftBijlageToelichting) {
+    s.nieuwePagina();
+    const kopY = s.huidigeY();
+    s.paragraaf("Bijlage — toelichting per onderdeel", {
+      size: 16,
+      font: serifBold,
+      kleur: KLEUR.primair,
+      x: MARGE,
+      maxBreedte: logo ? KOLOM_BREEDTE - 160 : KOLOM_BREEDTE,
+      regelHoogte: 19,
+      ruimteNa: 7,
+    });
+    const logoHoogte3 = tekenLogoRechtsboven(s.huidigePagina(), logo, kopY + 4);
+    if (logoHoogte3) s.setY(Math.min(s.huidigeY(), kopY + 4 - logoHoogte3 - 12));
+    s.regel("Deze toelichting geldt voor alle bovenstaande opdrachtbevestigingen.", { size: 9.5, kleur: KLEUR.zwak, ruimteNa: 22 });
+
+    if (algemeneToelichting.trim() !== "") {
+      s.regel("Algemeen", { size: 11.5, font: bold, kleur: KLEUR.primair, ruimteNa: 16 });
+      s.paragraaf(algemeneToelichting, { size: 10, kleur: KLEUR.secundair, ruimteNa: 11 });
+      s.lijn({ ruimteNa: 15 });
+    }
+    eersteRegelsLijst
+      .filter((r) => (bijlageToelichtingen[r.id] || "").trim() !== "")
+      .forEach((r) => {
+        s.regel(r.naam, { size: 11.5, font: bold, kleur: KLEUR.primair, ruimteNa: 16 });
+        s.paragraaf(bijlageToelichtingen[r.id], { size: 10, kleur: KLEUR.secundair, ruimteNa: 11 });
+        s.lijn({ ruimteNa: 15 });
+      });
+  }
 
   // ------------------------------------------------------------------
   // Ondertekeningsbewijs — eigen pagina, alleen als er al getekend/afgewezen is.
@@ -972,10 +1066,11 @@ async function maakOnboardingTaak({ accountId, managerId, bestandsUrl, dataverse
 // Standaardwaarden zolang er nog niets is opgeslagen onder de betreffende
 // instellingensleutel — zie api/instellingen (TOEGESTANE_SLEUTELS) en de
 // Instellingen-schermen in de app ("Offerte — taak bij ondertekening" en
-// "Opdrachtbevestiging — taak bij ondertekening"). Offerte's taak staat altijd aan
-// (geen "actief"-schakelaar); opdrachtbevestiging's taak staat standaard uit.
+// "Opdrachtbevestiging — taak bij ondertekening"). Beide hebben nu een eigen
+// "actief"-schakelaar; offerte staat standaard aan (ongewijzigd bestaand gedrag),
+// opdrachtbevestiging staat standaard uit.
 const TAAK_INSTELLINGEN_STANDAARD = {
-  offerte: { onderwerp: "Onboarding klant", categorie: 8009 },
+  offerte: { actief: true, onderwerp: "Onboarding klant", categorie: 8009 },
   opdrachtbevestiging: { actief: false, onderwerp: "Opdrachtbevestiging ondertekend", categorie: 8009 },
 };
 
@@ -1017,8 +1112,9 @@ async function verwerkOndertekeningNaSignering(record, contextLog) {
 
   const klantnaamVoorBestand = (naam) => naam.replace(/[\\/:*?"<>|]/g, "-").trim();
   const datumVoorBestand = new Date(record.aangemaaktOp).toISOString().slice(0, 10);
-  // Offerte's taak staat altijd aan; opdrachtbevestiging's taak alleen als expliciet aangezet.
-  const taakActief = soort === "offerte" || !!taakInstellingen.actief;
+  // Beide documentsoorten hebben nu een eigen "actief"-schakelaar (offerte staat standaard
+  // aan, opdrachtbevestiging standaard uit — zie TAAK_INSTELLINGEN_STANDAARD hierboven).
+  const taakActief = !!taakInstellingen.actief;
 
   for (const klant of klanten) {
     try {

@@ -51,7 +51,7 @@ module.exports = async function (context, req) {
           klantGroepen: record.klantGroepen || [],
           opdrachttypeId: record.opdrachttypeId || null,
           opdrachttypeNaam: record.opdrachttypeNaam || "",
-          status: record.status || "verzonden",
+          status: record.status || "in_bewerking",
           aangemaaktOp: record.aangemaaktOp,
           aangemaaktDoor: record.aangemaaktDoor,
           gewijzigdOp: record.gewijzigdOp,

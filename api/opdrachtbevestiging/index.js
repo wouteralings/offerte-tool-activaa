@@ -114,7 +114,10 @@ module.exports = async function (context, req) {
         gewijzigdDoor: gebruikerNaam,
         klantNamen: invoer.klantNamen !== undefined ? invoer.klantNamen : bestaandRecord?.klantNamen || [],
         klantGroepen: invoer.klantGroepen !== undefined ? invoer.klantGroepen : bestaandRecord?.klantGroepen || [],
-        status: invoer.status !== undefined ? invoer.status : bestaandRecord?.status || "verzonden",
+        // Anders dan offerte: standaard "in_bewerking" (nog niet gemaild), pas "verzonden"
+        // zodra de mail daadwerkelijk is verstuurd (zie verstuurMailConceptOpdrachtbevestiging
+        // in App.jsx, die de status expliciet bijwerkt na een geslaagde verzending).
+        status: invoer.status !== undefined ? invoer.status : bestaandRecord?.status || "in_bewerking",
         opdrachttypeId: invoer.opdrachttypeId !== undefined ? invoer.opdrachttypeId : bestaandRecord?.opdrachttypeId || null,
         opdrachttypeNaam: invoer.opdrachttypeNaam !== undefined ? invoer.opdrachttypeNaam : bestaandRecord?.opdrachttypeNaam || "",
         data: invoer.data !== undefined ? invoer.data : bestaandRecord?.data || {},

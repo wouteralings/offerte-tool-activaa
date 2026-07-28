@@ -103,6 +103,10 @@ export const CATEGORIE_LABELS = {
 // Status van een offerte: wordt automatisch op "verzonden" gezet bij de eerste opslag
 // (= het moment van afdrukken/PDF), en is daarna handmatig te wijzigen in het overzicht.
 const OFFERTE_STATUS_STANDAARD = "verzonden";
+// Opdrachtbevestiging start bewust anders dan offerte: "in bewerking" totdat de mail
+// daadwerkelijk is verstuurd (zie verstuurMailConceptOpdrachtbevestiging), niet al bij
+// het opslaan/afdrukken. Daarna is de status net als bij offerte handmatig te wijzigen.
+const OPDRACHTBEVESTIGING_STATUS_STANDAARD = "in_bewerking";
 export const OFFERTE_STATUSSEN = [
   { key: "in_bewerking", label: "In bewerking", kleur: "#5B6259", achtergrond: "#EEF0EC" },
   { key: "verzonden", label: "Verzonden", kleur: "#1C5D8C", achtergrond: "#EAF2F8" },
@@ -129,7 +133,7 @@ export const TAAK_CATEGORIE_OPTIES = [
 // Standaardwaarden voor de taak-instellingen (Instellingen > taak bij ondertekening) —
 // module-scope (niet per render opnieuw aangemaakt) zodat de load-useEffects hieronder
 // hier veilig naar kunnen verwijzen zonder een exhaustive-deps-waarschuwing.
-const TAAK_INSTELLINGEN_OFFERTE_DEFAULT = { onderwerp: "Onboarding klant", categorie: 8009 };
+const TAAK_INSTELLINGEN_OFFERTE_DEFAULT = { actief: true, onderwerp: "Onboarding klant", categorie: 8009 };
 const TAAK_INSTELLINGEN_OPDRACHTBEVESTIGING_DEFAULT = { actief: false, onderwerp: "Opdrachtbevestiging ondertekend", categorie: 8009 };
 
 // Standaard opdrachttypes (NV COS) — zelf te beheren/uit te breiden via "Opdrachtbevestiging-
@@ -662,7 +666,7 @@ async function opdrachtbevestigingenLijstOphalen() {
         klantGroepen: r.klantGroepen || [],
         opdrachttypeId: r.opdrachttypeId || null,
         opdrachttypeNaam: r.opdrachttypeNaam || "",
-        status: r.status || OFFERTE_STATUS_STANDAARD,
+        status: r.status || OPDRACHTBEVESTIGING_STATUS_STANDAARD,
         aangemaaktOp: r.aangemaaktOp,
         aangemaaktDoor: r.aangemaaktDoor,
         gewijzigdOp: r.gewijzigdOp,
@@ -714,7 +718,7 @@ async function opdrachtbevestigingOpslaan(id, payload) {
       gewijzigdDoor: payload.gebruikerNaam,
       klantNamen: payload.klantNamen !== undefined ? payload.klantNamen : bestaandRecord?.klantNamen || [],
       klantGroepen: payload.klantGroepen !== undefined ? payload.klantGroepen : bestaandRecord?.klantGroepen || [],
-      status: payload.status !== undefined ? payload.status : bestaandRecord?.status || OFFERTE_STATUS_STANDAARD,
+      status: payload.status !== undefined ? payload.status : bestaandRecord?.status || OPDRACHTBEVESTIGING_STATUS_STANDAARD,
       opdrachttypeId: payload.opdrachttypeId !== undefined ? payload.opdrachttypeId : bestaandRecord?.opdrachttypeId || null,
       opdrachttypeNaam: payload.opdrachttypeNaam !== undefined ? payload.opdrachttypeNaam : bestaandRecord?.opdrachttypeNaam || "",
       data: payload.data !== undefined ? payload.data : bestaandRecord?.data || {},
@@ -1082,7 +1086,7 @@ export default function OffertetoolApp() {
   const [huidigeOpdrachtbevestigingId, setHuidigeOpdrachtbevestigingId] = useState(null);
   const [opdrachtbevestigingMaker, setOpdrachtbevestigingMaker] = useState({ naam: "", email: "" });
   const [opdrachtbevestigingOpslaanStatus, setOpdrachtbevestigingOpslaanStatus] = useState("idle"); // idle | bezig | opgeslagen | fout
-  const [huidigeOpdrachtbevestigingStatus, setHuidigeOpdrachtbevestigingStatus] = useState(OFFERTE_STATUS_STANDAARD);
+  const [huidigeOpdrachtbevestigingStatus, setHuidigeOpdrachtbevestigingStatus] = useState(OPDRACHTBEVESTIGING_STATUS_STANDAARD);
   const [tekenLinkGekopieerdOpdrachtbevestiging, setTekenLinkGekopieerdOpdrachtbevestiging] = useState(false);
   const [pdfBezigOpdrachtbevestiging, setPdfBezigOpdrachtbevestiging] = useState(false);
   // Vanuit welke offerte (indien via de snelkoppeling op het Offerte-scherm) deze
@@ -1094,6 +1098,17 @@ export default function OffertetoolApp() {
   // aan te passen/aan te vullen/te verwijderen).
   const [gekozenOpdrachttypeId, setGekozenOpdrachttypeId] = useState(null);
   const [opdrachtbevestigingParagrafen, setOpdrachtbevestigingParagrafen] = useState({ verplicht: [], optioneel: [] });
+
+  // Mail-opstellen voor opdrachtbevestiging — zelfde opzet als mailStatus/mailConcepten/
+  // mailConceptOpenSleutel/mailCcExtra bij offerte, maar in een eigen "ob"-namespace. Een
+  // gedeelde status zou anders kunnen laten zien dat "de mail al verstuurd is" voor de
+  // opdrachtbevestiging terwijl in werkelijkheid alleen de offerte aan diezelfde klant is
+  // gemaild (of andersom) — mailAdressen (welk adres) blijft wél gedeeld, dat is niet
+  // documentgebonden.
+  const [obMailStatus, setObMailStatus] = useState({});
+  const [obMailConcepten, setObMailConcepten] = useState({});
+  const [obMailConceptOpenSleutel, setObMailConceptOpenSleutel] = useState(null);
+  const [obMailCcExtra, setObMailCcExtra] = useState({});
 
   // Opdrachtbevestigingen-overzicht: zelfde opzet als het offertes-overzicht hierboven, met
   // als enige inhoudelijke toevoeging het opdrachttype (kolom + filter) — zie het scherm
@@ -1183,10 +1198,18 @@ export default function OffertetoolApp() {
       klantVarianten,
       aangepastePrijzen,
       uitgeschakeldVoorKlant,
+      // Zelfde gedeelde bijlage/roadmap-velden als bij de offerte-snapshot hieronder — zorgt
+      // dat de opdrachtbevestiging-PDF exact dezelfde opbouw heeft (Speciaal-voor-vak, roadmap,
+      // bijlage-toelichting), enige verschil is de kop + de eigen NV COS-paragrafen.
+      algemeneToelichting,
+      bijlageToelichtingen,
+      klantToelichtingen,
+      roadmapToevoegen,
       regelsPerKlant,
       logo,
       afzender,
       algemeneVoorwaarden,
+      roadmap: roadmapToevoegen ? roadmap : null,
       namens: { naam: huidigeGebruiker?.naam || "", email: huidigeGebruiker?.email || "" },
       opdrachttypeId: gekozenOpdrachttypeId,
       opdrachttypeNaam: opdrachttypes.find((t) => t.id === gekozenOpdrachttypeId)?.naam || "",
@@ -1211,7 +1234,7 @@ export default function OffertetoolApp() {
         gebruikerEmail: huidigeGebruiker?.email || "",
       });
       setHuidigeOpdrachtbevestigingId(id);
-      setHuidigeOpdrachtbevestigingStatus(record?.status || OFFERTE_STATUS_STANDAARD);
+      setHuidigeOpdrachtbevestigingStatus(record?.status || OPDRACHTBEVESTIGING_STATUS_STANDAARD);
       setOpdrachtbevestigingMaker({ naam: record?.aangemaaktDoor || "", email: record?.aangemaaktDoorEmail || "" });
       setOpdrachtbevestigingOpslaanStatus("opgeslagen");
       return id;
@@ -1233,8 +1256,14 @@ export default function OffertetoolApp() {
       setGekozenOpdrachttypeId(snap.opdrachttypeId || record.opdrachttypeId || null);
       setOpdrachtbevestigingParagrafen(snap.paragrafen || { verplicht: [], optioneel: [] });
       setOpdrachtbevestigingVanuitOfferteId(snap.vanuitOfferteId || null);
+      // Gedeelde bijlage/roadmap-velden herstellen — zelfde als openOfferte hieronder, zodat de
+      // PDF-opbouw (roadmap, bijlage-toelichting, "Speciaal voor"-vak) exact gelijk blijft.
+      setAlgemeneToelichting(snap.algemeneToelichting || "");
+      setBijlageToelichtingen(snap.bijlageToelichtingen || {});
+      setKlantToelichtingen(snap.klantToelichtingen || {});
+      setRoadmapToevoegen(!!snap.roadmapToevoegen);
       setHuidigeOpdrachtbevestigingId(id);
-      setHuidigeOpdrachtbevestigingStatus(record.status || OFFERTE_STATUS_STANDAARD);
+      setHuidigeOpdrachtbevestigingStatus(record.status || OPDRACHTBEVESTIGING_STATUS_STANDAARD);
       setOpdrachtbevestigingMaker({ naam: record.aangemaaktDoor || "", email: record.aangemaaktDoorEmail || "" });
       setOpdrachtbevestigingOpslaanStatus("idle");
       // Onafhankelijk van welke offerte er evt. nog open stond — een geopende
@@ -1303,7 +1332,7 @@ export default function OffertetoolApp() {
     setOfferteVraagStatusTonen(false);
     setHuidigeOpdrachtbevestigingId(null);
     setOpdrachtbevestigingMaker({ naam: "", email: "" });
-    setHuidigeOpdrachtbevestigingStatus(OFFERTE_STATUS_STANDAARD);
+    setHuidigeOpdrachtbevestigingStatus(OPDRACHTBEVESTIGING_STATUS_STANDAARD);
     setOpdrachtbevestigingOpslaanStatus("idle");
     setGekozenOpdrachttypeId(null);
     setOpdrachtbevestigingParagrafen({ verplicht: [], optioneel: [] });
@@ -1387,6 +1416,92 @@ export default function OffertetoolApp() {
     }
   }
 
+  // Zelfde opzet als bepaalOfferteMaker() hierboven, maar voor opdrachtbevestiging.
+  function bepaalOpdrachtbevestigingMaker() {
+    if (opdrachtbevestigingMaker.email) return opdrachtbevestigingMaker;
+    return { naam: huidigeGebruiker?.naam || "", email: huidigeGebruiker?.email || "" };
+  }
+
+  // Zelfde opzet als openMailConcept() hierboven, maar met de eigen mailtekst/onderwerp voor
+  // opdrachtbevestiging (een bevestiging om te ondertekenen, geen offertevoorstel).
+  function openMailConceptOpdrachtbevestiging(sleutel, klanten) {
+    const groep = Array.isArray(klanten) ? klanten : [klanten];
+    const eerste = groep[0];
+    const bedrijfsnamen = groep.map((k) => k.naam).join(" en ");
+    const onderwerp = `Opdrachtbevestiging ${afzender.bedrijf}`;
+    const tekst = standaardMailtekstOpdrachtbevestiging
+      .replaceAll("{contact}", voornaam(eerste.contact) || bedrijfsnamen || "")
+      .replaceAll("{ondertekenaar}", huidigeGebruiker?.naam || "");
+    setObMailConcepten((prev) => ({ ...prev, [sleutel]: { onderwerp, tekst } }));
+    setObMailStatus((prev) => ({ ...prev, [sleutel]: undefined }));
+    setObMailConceptOpenSleutel(sleutel);
+  }
+
+  // Zelfde opzet als verstuurMailConcept() hierboven, met twee verschillen: het endpoint
+  // krijgt documentId + de generieke PDF-bijlage (offerte of opdrachtbevestiging, bepaald door
+  // record.soort op de server), en bij een geslaagde verzending wordt de status van de
+  // opdrachtbevestiging automatisch op "Verzonden" gezet — in tegenstelling tot offerte (waar
+  // dat al bij het opslaan/afdrukken gebeurt) staat een opdrachtbevestiging tot dit moment op
+  // "In bewerking".
+  async function verstuurMailConceptOpdrachtbevestiging(sleutel, klanten) {
+    const groep = Array.isArray(klanten) ? klanten : [klanten];
+    const eerste = groep[0];
+    const concept = obMailConcepten[sleutel];
+    if (!concept) return;
+
+    const email = mailAdressen[eerste.id] ?? eerste.email ?? "";
+    if (!email.trim()) {
+      setObMailStatus((prev) => ({ ...prev, [sleutel]: { status: "fout", bericht: "Vul eerst een e-mailadres in." } }));
+      return;
+    }
+
+    const id = await zorgVoorOpdrachtbevestigingId();
+    if (!id) return;
+    const link = `${window.location.origin}/tekenen/${id}`;
+    const volledigeTekst = concept.tekst.replaceAll("{link}", link);
+
+    const ccLijst = [];
+    const alToegevoegd = new Set([email.trim().toLowerCase()]);
+    const makerEmail = bepaalOpdrachtbevestigingMaker().email.trim();
+    if (makerEmail && !alToegevoegd.has(makerEmail.toLowerCase())) {
+      ccLijst.push(makerEmail);
+      alToegevoegd.add(makerEmail.toLowerCase());
+    }
+    const extraCc = (obMailCcExtra[sleutel] || "").trim();
+    if (extraCc && !alToegevoegd.has(extraCc.toLowerCase())) {
+      ccLijst.push(extraCc);
+      alToegevoegd.add(extraCc.toLowerCase());
+    }
+
+    setObMailStatus((prev) => ({ ...prev, [sleutel]: { status: "bezig" } }));
+    try {
+      const res = await fetch("/api/verstuur-mail", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          naar: email.trim(),
+          cc: ccLijst,
+          onderwerp: concept.onderwerp,
+          tekst: volledigeTekst,
+          documentId: id,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setObMailStatus((prev) => ({ ...prev, [sleutel]: { status: "verzonden", van: data.van, pdfBijgevoegd: data.pdfBijgevoegd } }));
+      setObMailConceptOpenSleutel(null);
+      try {
+        await opdrachtbevestigingOpslaan(id, { status: "verzonden", gebruikerNaam: huidigeGebruiker?.naam || "Onbekend" });
+        setHuidigeOpdrachtbevestigingStatus("verzonden");
+      } catch (e) {
+        // statuswijziging mislukt; de mail is al wel verstuurd, status is later handmatig te
+        // corrigeren via het overzicht
+      }
+    } catch (e) {
+      setObMailStatus((prev) => ({ ...prev, [sleutel]: { status: "fout", bericht: e.message } }));
+    }
+  }
+
   // Unieke waarden voor de filter-dropdowns van het opdrachtbevestigingen-overzicht.
   const opdrachtbevestigingenKlantgroepen = useMemo(() => {
     const set = new Set();
@@ -1403,7 +1518,7 @@ export default function OffertetoolApp() {
       if (opdrachtbevestigingenFilterOpdrachttype && o.opdrachttypeId !== opdrachtbevestigingenFilterOpdrachttype) {
         return false;
       }
-      if (opdrachtbevestigingenFilterStatus && (o.status || OFFERTE_STATUS_STANDAARD) !== opdrachtbevestigingenFilterStatus) {
+      if (opdrachtbevestigingenFilterStatus && (o.status || OPDRACHTBEVESTIGING_STATUS_STANDAARD) !== opdrachtbevestigingenFilterStatus) {
         return false;
       }
       if (!q) return true;
@@ -1806,6 +1921,41 @@ export default function OffertetoolApp() {
     if (!mailtekstGeladen) return;
     opslagSetDebounced("mailtekst", standaardMailtekst);
   }, [standaardMailtekst, mailtekstGeladen]);
+
+  // Standaard mailtekst voor opdrachtbevestiging — eigen tekst/instelling, los van offerte's
+  // mailtekst hierboven (andere insteek: een bevestiging om te ondertekenen, geen voorstel).
+  const STANDAARD_MAILTEKST_OB_DEFAULT =
+    "Beste {contact},\n\n" +
+    "Hierbij ontvangt u onze opdrachtbevestiging. U kunt deze inzien en digitaal ondertekenen via onderstaande link:\n" +
+    "{link}\n\n" +
+    "Met vriendelijke groet,\n" +
+    "{ondertekenaar}";
+  const [standaardMailtekstOpdrachtbevestiging, setStandaardMailtekstOpdrachtbevestiging] = useState(STANDAARD_MAILTEKST_OB_DEFAULT);
+  const [mailtekstOpdrachtbevestigingGeladen, setMailtekstOpdrachtbevestigingGeladen] = useState(false);
+
+  useEffect(() => {
+    let actief = true;
+    (async () => {
+      try {
+        const waarde = await opslagGet("mailtekst-opdrachtbevestiging");
+        if (actief && waarde) {
+          setStandaardMailtekstOpdrachtbevestiging(waarde);
+        }
+      } catch (e) {
+        // nog niets opgeslagen, standaardtekst blijft staan
+      } finally {
+        if (actief) setMailtekstOpdrachtbevestigingGeladen(true);
+      }
+    })();
+    return () => {
+      actief = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!mailtekstOpdrachtbevestigingGeladen) return;
+    opslagSetDebounced("mailtekst-opdrachtbevestiging", standaardMailtekstOpdrachtbevestiging);
+  }, [standaardMailtekstOpdrachtbevestiging, mailtekstOpdrachtbevestigingGeladen]);
 
   // Power Automate-webhook: optionele URL die de server (api/teken) met een POST aanroept
   // zodra een klant een offerte accepteert. Leeg = uitgeschakeld, geen extra actie.
@@ -3301,9 +3451,18 @@ export default function OffertetoolApp() {
               <span>Offerte — taak bij ondertekening</span>
             </div>
             <div className="ot-card" style={{ padding: 24 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13.5, fontWeight: 600, marginBottom: 16, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={!!taakInstellingenOfferte.actief}
+                  onChange={(e) => setTaakInstellingenOfferte((prev) => ({ ...prev, actief: e.target.checked }))}
+                  style={{ width: 16, height: 16, accentColor: "#1C5D8C" }}
+                />
+                Taak aanmaken bij ondertekening — {taakInstellingenOfferte.actief ? "aan" : "uit"}
+              </label>
               <p style={{ fontSize: 12.5, color: "#5B6259", margin: "0 0 14px" }}>
-                Staat altijd aan (ongewijzigd) — onderwerp en categorie zijn nu wel instelbaar in plaats van vast.
-                Eigenaar van de taak blijft de relatiebeheerder van de klant.
+                Staat standaard aan (ongewijzigd bestaand gedrag) — onderwerp en categorie zijn instelbaar in plaats
+                van vast. Eigenaar van de taak blijft de relatiebeheerder van de klant.
               </p>
               <div className="ot-tweekolommen">
                 <div>
@@ -3857,6 +4016,36 @@ export default function OffertetoolApp() {
                     </div>
                   </>
                 )}
+
+                <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
+                  <span>Tekenlink per e-mail</span>
+                </div>
+                <div className="ot-card" style={{ padding: 18 }}>
+                  <label className="ot-label">Standaard mailtekst — opdrachtbevestiging</label>
+                  <textarea
+                    className="ot-input"
+                    rows={7}
+                    value={standaardMailtekstOpdrachtbevestiging}
+                    onChange={(e) => setStandaardMailtekstOpdrachtbevestiging(e.target.value)}
+                  />
+                  <p style={{ fontSize: 11.5, color: "#8A9089", marginTop: 6 }}>
+                    Beschikbare plaatshouders: <code>{"{contact}"}</code> (voornaam van de
+                    contactpersoon), <code>{"{link}"}</code> (de tekenlink),{" "}
+                    <code>{"{ondertekenaar}"}</code> (naam van degene die verstuurt). Los van de
+                    offerte-mailtekst bij "Teksten beheren" — bij het versturen kun je de tekst
+                    per keer nog aanpassen.
+                  </p>
+                  {standaardMailtekstOpdrachtbevestiging !== STANDAARD_MAILTEKST_OB_DEFAULT && (
+                    <button
+                      className="ot-btn-ghost"
+                      style={{ marginTop: 8 }}
+                      onClick={() => setStandaardMailtekstOpdrachtbevestiging(STANDAARD_MAILTEKST_OB_DEFAULT)}
+                    >
+                      <RotateCcw size={12} />
+                      Terugzetten naar standaard
+                    </button>
+                  )}
+                </div>
 
                 <div style={{ display: "flex", justifyContent: "flex-start", marginTop: 22 }}>
                   <button className="ot-btn-secondary" onClick={() => setStap(terugNaarStap)}>
@@ -4757,7 +4946,7 @@ export default function OffertetoolApp() {
                           <td style={{ padding: "10px 14px" }}>{o.opdrachttypeNaam || "—"}</td>
                           <td style={{ padding: "10px 14px" }}>
                             <select
-                              value={o.status || OFFERTE_STATUS_STANDAARD}
+                              value={o.status || OPDRACHTBEVESTIGING_STATUS_STANDAARD}
                               onChange={(e) => wijzigOpdrachtbevestigingStatus(o.id, e.target.value)}
                               disabled={opdrachtbevestigingStatusBezigId === o.id}
                               style={{
@@ -6253,6 +6442,156 @@ export default function OffertetoolApp() {
                   </>
                 )}
 
+                {(() => {
+                  // Zelfde groepering op (evt. aangepast) e-mailadres als bij de offerte
+                  // hierboven — mailAdressen is gedeelde state, dus al ingevulde adressen
+                  // staan hier meteen klaar.
+                  const mailGroepen = [];
+                  const indexPerSleutel = new Map();
+                  gekozenKlanten.forEach((klant) => {
+                    const email = (mailAdressen[klant.id] ?? klant.email ?? "").trim().toLowerCase();
+                    const sleutel = email || `__geen-adres__${klant.id}`;
+                    if (indexPerSleutel.has(sleutel)) {
+                      mailGroepen[indexPerSleutel.get(sleutel)].klanten.push(klant);
+                    } else {
+                      indexPerSleutel.set(sleutel, mailGroepen.length);
+                      mailGroepen.push({ sleutel, klanten: [klant] });
+                    }
+                  });
+
+                  return (
+                    <div style={{ padding: "14px 16px", background: "#FAFAF7", border: "1px solid #E2E4DF", borderRadius: 10, marginTop: 20 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#5B6259", marginBottom: 10 }}>
+                        Tekenlink per e-mail aanbieden
+                      </div>
+                      <div style={{ display: "grid", gap: 6 }}>
+                        {mailGroepen.map((groep) => {
+                          const eerste = groep.klanten[0];
+                          const emailWaarde = mailAdressen[eerste.id] ?? eerste.email ?? "";
+                          const klantNamenTekst = groep.klanten.map((k) => k.naam).join(" + ");
+                          const status = obMailStatus[groep.sleutel];
+                          const conceptOpen = obMailConceptOpenSleutel === groep.sleutel;
+                          const concept = obMailConcepten[groep.sleutel];
+                          return (
+                            <div key={groep.sleutel}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                                <span style={{ fontSize: 12.5, minWidth: 140, color: "#3A4038" }}>{klantNamenTekst}</span>
+                                <input
+                                  className="ot-input"
+                                  type="email"
+                                  style={{ flex: 1, minWidth: 200 }}
+                                  value={emailWaarde}
+                                  onChange={(e) => {
+                                    const nieuweWaarde = e.target.value;
+                                    setMailAdressen((prev) => {
+                                      const next = { ...prev };
+                                      groep.klanten.forEach((k) => {
+                                        next[k.id] = nieuweWaarde;
+                                      });
+                                      return next;
+                                    });
+                                  }}
+                                  placeholder="e-mailadres@voorbeeld.nl"
+                                />
+                                {!conceptOpen && (
+                                  <button
+                                    className="ot-btn-secondary"
+                                    onClick={() => openMailConceptOpdrachtbevestiging(groep.sleutel, groep.klanten)}
+                                    disabled={status?.status === "bezig" || !gekozenOpdrachttypeId}
+                                  >
+                                    {status?.status === "verzonden" ? <Check size={14} /> : <Mail size={14} />}
+                                    {status?.status === "verzonden" ? "Nogmaals versturen" : "Mail opstellen"}
+                                  </button>
+                                )}
+                              </div>
+
+                              {conceptOpen && concept && (
+                                <div style={{ marginTop: 8, padding: 12, background: "#fff", border: "1px solid #C8CDC5", borderRadius: 8 }}>
+                                  <label style={{ fontSize: 11, color: "#8A9089", display: "block", marginBottom: 3 }}>Onderwerp</label>
+                                  <input
+                                    className="ot-input"
+                                    style={{ marginBottom: 8 }}
+                                    value={concept.onderwerp}
+                                    onChange={(e) =>
+                                      setObMailConcepten((prev) => ({ ...prev, [groep.sleutel]: { ...prev[groep.sleutel], onderwerp: e.target.value } }))
+                                    }
+                                  />
+                                  <label style={{ fontSize: 11, color: "#8A9089", display: "block", marginBottom: 3 }}>Tekst</label>
+                                  <textarea
+                                    className="ot-input"
+                                    rows={7}
+                                    value={concept.tekst}
+                                    onChange={(e) =>
+                                      setObMailConcepten((prev) => ({ ...prev, [groep.sleutel]: { ...prev[groep.sleutel], tekst: e.target.value } }))
+                                    }
+                                  />
+                                  <p style={{ fontSize: 10.5, color: "#8A9089", marginTop: 4 }}>
+                                    Laat <code>{"{link}"}</code> staan — die wordt bij het versturen automatisch de echte tekenlink.
+                                  </p>
+                                  {(() => {
+                                    const maker = bepaalOpdrachtbevestigingMaker();
+                                    return maker.email ? (
+                                      <p style={{ fontSize: 10.5, color: "#8A9089", marginTop: 0, marginBottom: 8 }}>
+                                        In cc: {maker.naam ? `${maker.naam} ` : ""}
+                                        ({maker.email})
+                                      </p>
+                                    ) : null;
+                                  })()}
+                                  <label style={{ fontSize: 11, color: "#8A9089", display: "block", marginBottom: 3 }}>
+                                    Extra cc (optioneel)
+                                  </label>
+                                  <input
+                                    className="ot-input"
+                                    type="email"
+                                    style={{ marginBottom: 8 }}
+                                    value={obMailCcExtra[groep.sleutel] || ""}
+                                    onChange={(e) =>
+                                      setObMailCcExtra((prev) => ({ ...prev, [groep.sleutel]: e.target.value }))
+                                    }
+                                    placeholder="naam@voorbeeld.nl"
+                                  />
+                                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                                    <button
+                                      className="ot-btn-secondary"
+                                      onClick={() => setObMailConceptOpenSleutel(null)}
+                                      disabled={status?.status === "bezig"}
+                                    >
+                                      Annuleren
+                                    </button>
+                                    <button
+                                      className="ot-btn-primary"
+                                      onClick={() => verstuurMailConceptOpdrachtbevestiging(groep.sleutel, groep.klanten)}
+                                      disabled={status?.status === "bezig"}
+                                    >
+                                      <Mail size={14} />
+                                      {status?.status === "bezig" ? "Bezig met versturen…" : "Versturen"}
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+
+                              {status?.status === "verzonden" && (
+                                <div style={{ fontSize: 11, color: "#2E7D4F", marginTop: 3 }}>
+                                  Verzonden vanaf {status.van} — status is automatisch bijgewerkt naar "Verzonden".
+                                  {status.pdfBijgevoegd ? " De opdrachtbevestiging-PDF is als bijlage meegestuurd." : " (zonder PDF-bijlage — het genereren daarvan is niet gelukt)."}
+                                </div>
+                              )}
+                              {status?.status === "fout" && (
+                                <div style={{ fontSize: 11, color: "#B14A2E", marginTop: 3 }}>{status.bericht}</div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <p style={{ fontSize: 11, color: "#8A9089", marginTop: 8 }}>
+                        Wordt rechtstreeks verzonden vanaf <strong>correspondentie@activaa.nl</strong> — je kunt de
+                        tekst voor het versturen nog aanpassen. Standaardtekst instellen kan bij
+                        "Opdrachtbevestiging-teksten beheren".
+                      </p>
+                    </div>
+                  );
+                })()}
+
                 <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
                   <span>Klant &amp; diensten (overgenomen)</span>
                 </div>
@@ -6451,11 +6790,44 @@ function StapNavigatie({ onVorige, onVolgende, volgendeDisabled, volgendeLabel }
   );
 }
 
-// Categorie-select voor de taak-instellingen (offerte + opdrachtbevestiging) — laat de
-// bekende cr283_soortactiecategorie-codes zien (TAAK_CATEGORIE_OPTIES), met "Andere code…"
-// voor codes die daar nog niet in staan (vrij numeriek veld).
+// Module-scope cache zodat de twee TaakCategorieSelect-instanties (offerte +
+// opdrachtbevestiging) niet allebei apart hoeven te fetchen — eenmaal opgehaald in deze
+// sessie is genoeg, de optionset-waarden veranderen niet tijdens gebruik van de tool.
+let taakCategorieenCache = null;
+
+// Categorie-select voor de taak-instellingen (offerte + opdrachtbevestiging) — haalt de
+// daadwerkelijke, actuele cr283_soortactiecategorie-optionsetwaarden live op bij Dataverse
+// (/api/taakcategorieen). Lukt dat niet (bijv. Dynamics-koppeling nog niet geconfigureerd,
+// of nog aan het laden), dan valt de select terug op de eerder bekende lijst
+// (TAAK_CATEGORIE_OPTIES) — plus altijd "Andere code…" voor codes die daar nog niet in staan.
 function TaakCategorieSelect({ waarde, onChange }) {
-  const bekend = TAAK_CATEGORIE_OPTIES.some((o) => o.code === Number(waarde));
+  const [categorieen, setCategorieen] = useState(taakCategorieenCache || TAAK_CATEGORIE_OPTIES);
+  const [ophalenMislukt, setOphalenMislukt] = useState(false);
+
+  useEffect(() => {
+    if (taakCategorieenCache) return;
+    let actief = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/taakcategorieen");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          taakCategorieenCache = data;
+          if (actief) setCategorieen(data);
+        }
+      } catch (e) {
+        // Dynamics-koppeling nog niet beschikbaar/geconfigureerd — de bekende lijst
+        // (TAAK_CATEGORIE_OPTIES, al het startpunt van deze state) blijft dan gewoon staan.
+        if (actief) setOphalenMislukt(true);
+      }
+    })();
+    return () => {
+      actief = false;
+    };
+  }, []);
+
+  const bekend = categorieen.some((o) => o.code === Number(waarde));
   return (
     <div>
       <select
@@ -6466,7 +6838,7 @@ function TaakCategorieSelect({ waarde, onChange }) {
           onChange(Number(e.target.value));
         }}
       >
-        {TAAK_CATEGORIE_OPTIES.map((o) => (
+        {categorieen.map((o) => (
           <option key={o.code} value={o.code}>
             {o.label} ({o.code})
           </option>
@@ -6482,6 +6854,12 @@ function TaakCategorieSelect({ waarde, onChange }) {
           value={waarde ?? ""}
           onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
         />
+      )}
+      {ophalenMislukt && (
+        <p style={{ fontSize: 10.5, color: "#8A9089", marginTop: 6 }}>
+          Kon de actuele lijst niet live ophalen bij Dynamics — dit toont de eerder bekende
+          categorieën.
+        </p>
       )}
     </div>
   );

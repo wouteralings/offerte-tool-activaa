@@ -62,6 +62,7 @@ const TOEGESTANE_SLEUTELS = new Set([
   "webhook-opdrachtbevestiging-acceptatie",
   "taak-instellingen-offerte",
   "taak-instellingen-opdrachtbevestiging",
+  "mailtekst-opdrachtbevestiging",
 ]);
 
 module.exports = async function (context, req) {
