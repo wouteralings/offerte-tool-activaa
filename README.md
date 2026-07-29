@@ -334,6 +334,9 @@ bredere bevoegdheid dan waarvoor die Application User tot nu toe is ingericht:
    minimale rol — "System Customizer" was alleen nodig voor deze eenmalige opzet, niet voor het
    dagelijkse wegschrijven van tarieven zelf (dat gebruikt alleen gewone lees/schrijfrechten op
    de nieuwe tabellen, die de nieuwe rol niet meer hoeft te hebben).
+   **Uitzondering:** wil je de knop "Kolom aanmaken in Dataverse" (zie Stap 5 hieronder) blijven
+   gebruiken, laat de rol dan permanent staan — dat endpoint gebruikt dezelfde Metadata-API en
+   heeft dus doorlopend dezelfde bevoegdheid nodig, niet alleen tijdens deze eenmalige opzet.
 
 ### Stap 2 — Schakelaar aanzetten
 
@@ -369,6 +372,31 @@ van beide vereist extra opzet, ze werken zodra stap 1 gelukt is:
   aantal en looptijd in een tabel. Leest de kolommen die je eventueel bij "kolom-koppeling"
   hierboven hebt aangepast, dus dit overzicht klopt ook als je niet de standaardkolommen
   gebruikt.
+
+### Stap 5 (optioneel) — Eigen kolom per dienst automatisch laten aanmaken
+
+Bij "Tarieven — kolom-koppeling in Dataverse" staat per dienst ook een knop **"Kolom aanmaken in
+Dataverse"** — die maakt meteen een eigen bedrag- en omschrijvingkolom voor die dienst aan op
+`cr283_tarief` (bijv. `cr283_bedrag_loonaangiftes` / `cr283_omschrijving_loonaangiftes`, afgeleid
+van de dienstnaam) en vult de twee velden ernaast automatisch in — je hoeft dan niet meer zelf in
+de Power Apps-portal een kolom aan te maken en de logische naam over te typen. Nogmaals klikken
+voor dezelfde dienst (of twee diensten met exact dezelfde naam) hergebruikt de bestaande kolom,
+er komen dus nooit dubbele/ongebruikte kolommen bij.
+
+Twee dingen om rekening mee te houden:
+
+- **Vereist dezelfde "System Customizer"-rol als Stap 1** — maar dan **permanent**, niet alleen
+  tijdens de eenmalige opzet (zie de uitzondering bij Stap 1, punt 5 hierboven). Dat is een
+  bredere, blijvende bevoegdheid dan voor gewoon dagelijks gebruik nodig is.
+- **Daarom beheerders-only.** De knop (en het hele Instellingen-scherm) is alleen zichtbaar/
+  bruikbaar voor **beheerders** — zie "Medewerkers beheren" onderaan Instellingen: daar wijs je
+  per medewerker (naam, e-mail, telefoonnummer, functie) de rol "Beheerder" toe. De e-mailadressen
+  `automatisering@activaa.nl` en `alings@activaa.nl` zijn hierin altijd beheerder, ook als ze niet
+  in de medewerkerslijst voorkomen — dat voorkomt dat iedereen de toegang tot Instellingen kwijt
+  zou kunnen raken. De overige beheerschermen (Dienstencatalogus, Teksten, Voorwaarden, Roadmap,
+  Opdrachtbevestiging-teksten) blijven voor alle ingelogde gebruikers toegankelijk zoals voorheen —
+  alleen het Instellingen-scherm zelf (Afzendergegevens, tarieven-instellingen, kolom-koppeling,
+  Dataverse inzien, medewerkersbeheer) is nu beheerders-only.
 
 ## Automatisch concept na einddatum tarieven
 

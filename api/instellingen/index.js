@@ -1,4 +1,5 @@
 const { BlobServiceClient } = require("@azure/storage-blob");
+const { isBeheerder } = require("../_gedeeld/onboarding");
 
 const CONTAINER_NAAM = "instellingen";
 
@@ -87,7 +88,20 @@ const TOEGESTANE_SLEUTELS = new Set([
   // Opdrachtbevestiging heeft alleen een algemene toelichting — géén klantspecifieke/per-dienst
   // toelichting en géén roadmap, dat is bewust alleen bij de offerte gebleven.
   "bijlage-algemeen-opdrachtbevestiging",
+  // Medewerkers (naam/e-mail/telefoonnummer/functie/rol) — bepaalt via de rol "beheerder" wie
+  // toegang heeft tot het Instellingen-scherm en wie op verzoek een Dataverse-kolom mag
+  // aanmaken (zie isBeheerder in api/_gedeeld/onboarding.js en "Medewerkers beheren" in
+  // src/App.jsx). Lezen én schrijven van deze sleutel is bewust beheerders-only (zie hieronder).
+  "medewerkers",
 ]);
+
+// Instellingensleutels die ook bij een GET (lezen) al beheerder vereisen — in tegenstelling
+// tot de meeste andere sleutels (dienstencatalogus, teksten, logo, enz.), die de hele app
+// nodig heeft om offertes/opdrachtbevestigingen te kunnen opstellen, wordt "medewerkers"
+// alleen gebruikt binnen het (nu al beheerders-only) Instellingen-scherm zelf, en bevat het
+// persoonsgegevens (telefoonnummer) die niet voor iedere ingelogde gebruiker zichtbaar hoeven
+// te zijn.
+const BEHEERDER_ALLEEN_LEZEN_SLEUTELS = new Set(["medewerkers"]);
 
 module.exports = async function (context, req) {
   const sleutel = context.bindingData.sleutel;
@@ -116,6 +130,22 @@ module.exports = async function (context, req) {
       status: 403,
       headers: { "Content-Type": "application/json" },
       body: { error: "Ongeldig verzoek." },
+    };
+    return;
+  }
+
+  // Beheerder-drempel: elke wijziging (PUT/DELETE) is een Instellingen-scherm-actie en dus
+  // beheerders-only — zie isBeheerder in api/_gedeeld/onboarding.js. Lezen (GET) blijft voor
+  // de meeste sleutels open (de rest van de app heeft dienstencatalogus, teksten, logo enz.
+  // ook buiten Instellingen om nodig), behalve voor de sleutels in
+  // BEHEERDER_ALLEEN_LEZEN_SLEUTELS hierboven.
+  const vereistBeheerder =
+    req.method === "PUT" || req.method === "DELETE" || (req.method === "GET" && BEHEERDER_ALLEEN_LEZEN_SLEUTELS.has(sleutel));
+  if (vereistBeheerder && !(await isBeheerder(req))) {
+    context.res = {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+      body: { error: "Alleen beheerders hebben hier toegang toe." },
     };
     return;
   }

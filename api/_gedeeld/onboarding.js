@@ -45,6 +45,59 @@ async function haalGraphToken() {
 }
 
 // ---------------------------------------------------------------------------
+// Beheerder-check — wie mag het Instellingen-scherm zien en wie mag op verzoek een eigen
+// Dataverse-kolom aanmaken (zie maakTariefKolommenVoorDienst verderop)? Gebaseerd op de
+// instellingensleutel "medewerkers" (zie "Medewerkers beheren" in Instellingen, src/App.jsx)
+// — een lijst van { naam, email, telefoonnummer, functie, rol: "normaal"|"beheerder" } —
+// aangevuld met twee vaste "noodbeheerders" die altijd beheerder blijven, ook als de
+// medewerkerslijst leeg is of per ongeluk leeggemaakt wordt (anders zou niemand zichzelf nog
+// beheerder kunnen maken via het scherm dat zelf achter deze check zit).
+// ---------------------------------------------------------------------------
+const STANDAARD_BEHEERDERS = new Set(["automatisering@activaa.nl", "alings@activaa.nl"]);
+
+// Azure Static Web Apps geeft de ingelogde gebruiker door aan gekoppelde Functions via de
+// "x-ms-client-principal"-header (base64-JSON) — dezelfde gegevens als /.auth/me in de
+// browser (zie src/App.jsx). Ontbreekt de header (bijv. lokale ontwikkeling zonder
+// SWA-emulator), dan is er geen ingelogde gebruiker bekend en levert dit null op.
+function haalIngelogdePrincipal(req) {
+  try {
+    const header = req?.headers?.["x-ms-client-principal"];
+    if (!header) return null;
+    const json = Buffer.from(header, "base64").toString("utf-8");
+    return JSON.parse(json) || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function haalIngelogdEmail(req) {
+  const principal = haalIngelogdePrincipal(req);
+  const waarde = (principal?.userDetails || "").toLowerCase().trim();
+  return waarde || null;
+}
+
+async function haalMedewerkers() {
+  try {
+    const ruw = await haalInstellingWaarde("medewerkers");
+    if (!ruw) return [];
+    const lijst = JSON.parse(ruw);
+    return Array.isArray(lijst) ? lijst : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+// true als de ingelogde gebruiker (via req) beheerder is — óf via de vaste noodlijst, óf
+// via de zelf beheerde medewerkerslijst (rol === "beheerder").
+async function isBeheerder(req) {
+  const email = haalIngelogdEmail(req);
+  if (!email) return false;
+  if (STANDAARD_BEHEERDERS.has(email)) return true;
+  const medewerkers = await haalMedewerkers();
+  return medewerkers.some((m) => (m?.email || "").toLowerCase().trim() === email && m?.rol === "beheerder");
+}
+
+// ---------------------------------------------------------------------------
 // Accountgegevens ophalen: de SharePoint-locatie en de gekoppelde Manager
 // (voor de taaktoewijzing).
 // ---------------------------------------------------------------------------
@@ -1313,6 +1366,138 @@ async function haalTariefKolomMapping() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Op verzoek een eigen bedrag- en omschrijvingkolom aanmaken op cr283_tarief voor één
+// dienst (zie de knop "Kolom aanmaken in Dataverse" bij "Tarieven — kolom-koppeling" in
+// Instellingen, en api/dataverse-kolom-aanmaken). Zelfde Metadata-API-aanpak als het
+// eenmalige opzet-endpoint (api/dataverse-schema-setup), maar bewust als eigen, kleine
+// kopie van de benodigde hulpfuncties i.p.v. hergebruik — zo blijft dat bestaande,
+// kritieke endpoint volledig ongemoeid. Vereist dezelfde "System Customizer"-rol (of
+// hoger) op de Application User, hier nu permanent i.p.v. alleen tijdens de eenmalige
+// opzet — zie isBeheerder hierboven voor de reden dat dit endpoint beheerders-only is.
+// ---------------------------------------------------------------------------
+function label(tekst) {
+  return {
+    "@odata.type": "Microsoft.Dynamics.CRM.Label",
+    LocalizedLabels: [{ "@odata.type": "Microsoft.Dynamics.CRM.LocalizedLabel", Label: tekst, LanguageCode: 1033 }],
+  };
+}
+
+async function dv(token, resource, pad, opties = {}) {
+  const res = await fetch(`${resource}/api/data/v9.2${pad}`, {
+    ...opties,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      "Content-Type": "application/json; charset=utf-8",
+      "OData-MaxVersion": "4.0",
+      "OData-Version": "4.0",
+      ...(opties.headers || {}),
+    },
+  });
+  return res;
+}
+
+function verwerkFout(res, tekst) {
+  if (res.status === 403) {
+    return new Error(
+      `Geen rechten (403) — de Application User heeft waarschijnlijk niet (meer) de systeemrol "System ` +
+        `Customizer" (of hoger). Zie README.md. Details: ${tekst}`
+    );
+  }
+  return new Error(tekst);
+}
+
+async function attribuutBestaat(token, resource, entityLogicalName, attributeLogicalName) {
+  const res = await dv(
+    token,
+    resource,
+    `/EntityDefinitions(LogicalName='${entityLogicalName}')/Attributes?$select=LogicalName&$filter=LogicalName eq '${attributeLogicalName}'`
+  );
+  if (!res.ok) throw verwerkFout(res, await res.text());
+  const data = await res.json();
+  return (data.value || []).length > 0;
+}
+
+async function maakAttribuut(token, resource, entityLogicalName, attributeLogicalName, metadata) {
+  if (await attribuutBestaat(token, resource, entityLogicalName, attributeLogicalName)) {
+    return { actie: "bestond al", attribuut: attributeLogicalName };
+  }
+  const res = await dv(token, resource, `/EntityDefinitions(LogicalName='${entityLogicalName}')/Attributes`, {
+    method: "POST",
+    body: JSON.stringify(metadata),
+  });
+  if (!res.ok) throw verwerkFout(res, await res.text());
+  return { actie: "aangemaakt", attribuut: attributeLogicalName };
+}
+
+async function publiceerAllesVoorKolom(token, resource) {
+  const res = await dv(token, resource, "/PublishAllXml", { method: "POST", body: JSON.stringify({}) });
+  if (!res.ok) return { actie: "publiceren mislukt", details: await res.text() };
+  return { actie: "gepubliceerd" };
+}
+
+// Zet een dienstnaam om in een veilige Dataverse-logische-naam-vorm: kleine letters,
+// cijfers en underscores, diakrieten weg, maximaal 40 tekens (ruim onder de limiet van
+// Dataverse, ook met het "cr283_bedrag_"/"cr283_omschrijving_"-voorvoegsel erbij).
+function maakKolomSlug(tekst) {
+  const basis = String(tekst || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 40);
+  return basis || "dienst";
+}
+
+// Maakt, voor één dienst, een eigen bedrag- (Money) en omschrijvingkolom (tekst) aan op
+// cr283_tarief en geeft de (aangemaakte of al bestaande) kolomnamen terug — de aanroeper
+// (api/dataverse-kolom-aanmaken) vult daarmee automatisch de kolom-koppelingstabel voor
+// die dienst in, zodat er niets met de hand overgetypt hoeft te worden.
+//
+// De kolomnaam wordt deterministisch afgeleid van de dienstnaam (niet het dienst-ID) — dit
+// is bewust géén "zoek een vrije naam met oplopend volgnummer"-aanpak: maakAttribuut
+// hieronder is zelf al idempotent (bestaat de kolom al, dan wordt hij overgeslagen i.p.v.
+// opnieuw aangemaakt), dus nogmaals klikken voor dezelfde dienst — of twee diensten met
+// exact dezelfde naam — levert steeds dezelfde kolom op i.p.v. een steeds oplopende reeks
+// (cr283_bedrag_x, _x_2, _x_3, …) aan losse, ongebruikte kolommen.
+async function maakTariefKolommenVoorDienst(dienstNaam) {
+  const resource = process.env.DYNAMICS_RESOURCE_URL;
+  if (!resource) throw new Error("MISSING_CONFIG");
+  const token = await haalDataverseToken();
+  const slug = maakKolomSlug(dienstNaam);
+
+  const bedragKolom = `${DV_PREFIX}_bedrag_${slug}`;
+  const omschrijvingKolom = `${DV_PREFIX}_omschrijving_${slug}`;
+
+  await maakAttribuut(token, resource, `${DV_PREFIX}_tarief`, bedragKolom, {
+    "@odata.type": "Microsoft.Dynamics.CRM.MoneyAttributeMetadata",
+    AttributeType: "Money",
+    AttributeTypeName: { Value: "MoneyType" },
+    SchemaName: bedragKolom,
+    DisplayName: label(`Bedrag — ${dienstNaam}`.slice(0, 100)),
+    Description: label(`Eigen bedragkolom voor dienst "${dienstNaam}", via Instellingen aangemaakt.`),
+    RequiredLevel: { Value: "None", CanBeChanged: true, ManagedPropertyLogicalName: "canmodifyrequirementlevelsettings" },
+    PrecisionSource: 2,
+  });
+  await maakAttribuut(token, resource, `${DV_PREFIX}_tarief`, omschrijvingKolom, {
+    "@odata.type": "Microsoft.Dynamics.CRM.StringAttributeMetadata",
+    AttributeType: "String",
+    AttributeTypeName: { Value: "StringType" },
+    SchemaName: omschrijvingKolom,
+    DisplayName: label(`Omschrijving — ${dienstNaam}`.slice(0, 100)),
+    Description: label(`Eigen omschrijvingkolom voor dienst "${dienstNaam}", via Instellingen aangemaakt.`),
+    RequiredLevel: { Value: "None", CanBeChanged: true, ManagedPropertyLogicalName: "canmodifyrequirementlevelsettings" },
+    MaxLength: 200,
+    FormatName: { Value: "Text" },
+  });
+
+  await publiceerAllesVoorKolom(token, resource);
+
+  return { bedragKolom, omschrijvingKolom };
+}
+
 // Geeft de ingestelde kolomnaam (bedragKolom/omschrijvingKolom) voor één specifieke dienst terug
 // — ondersteunt zowel de huidige, per-dienst vorm als (defensief) de oude, vlakke vorm van vóór
 // deze tabel bestond (één instelling die toen voor alle diensten gold).
@@ -1749,4 +1934,7 @@ module.exports = {
   haalTarievenOverzicht,
   haalTariefKolomMapping,
   verwerkVerlopenTarieven,
+  isBeheerder,
+  haalIngelogdEmail,
+  maakTariefKolommenVoorDienst,
 };

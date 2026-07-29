@@ -887,6 +887,32 @@ export default function OffertetoolApp() {
     };
   }, []);
 
+  // Mag deze ingelogde gebruiker het Instellingen-scherm zien en op verzoek een Dataverse-
+  // kolom aanmaken (zie api/ben-ik-beheerder en isBeheerder in api/_gedeeld/onboarding.js)?
+  // Puur voor het tonen/verbergen van beheerders-only onderdelen — de echte afdwinging
+  // gebeurt server-side, dus dit is alleen relevant voor de gebruikerservaring. Faalt de
+  // aanroep (bijv. lokale ontwikkeling zonder /api-backend), dan blijft dit gewoon "nee".
+  const [benIkBeheerder, setBenIkBeheerder] = useState(false);
+  const [benIkBeheerderGeladen, setBenIkBeheerderGeladen] = useState(false);
+
+  useEffect(() => {
+    let actief = true;
+    fetch("/api/ben-ik-beheerder")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (actief) setBenIkBeheerder(data?.beheerder === true);
+      })
+      .catch(() => {
+        // geen /api-backend bereikbaar (bijv. lokale ontwikkeling) — blijft "nee"
+      })
+      .finally(() => {
+        if (actief) setBenIkBeheerderGeladen(true);
+      });
+    return () => {
+      actief = false;
+    };
+  }, []);
+
   const huidigeGebruiker = echteGebruiker || MOCK_USER;
 
   const [afzender, setAfzender] = useState({
@@ -1103,6 +1129,13 @@ export default function OffertetoolApp() {
   // "Categorieën beheren" onder Dienstencatalogus beheren, en groepeerOpCategorie hierboven.
   const [categorieen, setCategorieen] = useState(CATEGORIEEN_STANDAARD);
   const [categorieenGeladen, setCategorieenGeladen] = useState(false);
+
+  // Medewerkers (naam/e-mail/telefoonnummer/functie/rol) — bepaalt via de rol "beheerder" wie
+  // toegang heeft tot het Instellingen-scherm, zie "Medewerkers beheren" onder Instellingen en
+  // isBeheerder in api/_gedeeld/onboarding.js. automatisering@activaa.nl en alings@activaa.nl
+  // zijn daar altijd beheerder, ook als ze niet (meer) in deze lijst staan.
+  const [medewerkers, setMedewerkers] = useState([]);
+  const [medewerkersGeladen, setMedewerkersGeladen] = useState(false);
 
   const [zoekKlant, setZoekKlant] = useState("");
   const [gekozenKlanten, setGekozenKlanten] = useState([]); // array van klant-objecten
@@ -2340,6 +2373,43 @@ export default function OffertetoolApp() {
     opslagSetDebounced("diensten-categorieen", JSON.stringify(categorieen));
   }, [categorieen, categorieenGeladen]);
 
+  // Medewerkers laden — alleen zinvol voor beheerders (de server wijst een GET hierop af
+  // voor niet-beheerders, zie BEHEERDER_ALLEEN_LEZEN_SLEUTELS in api/instellingen), dus voor
+  // een normale gebruiker blijft dit gewoon een lege lijst zonder foutmelding in de UI.
+  useEffect(() => {
+    let actief = true;
+    (async () => {
+      try {
+        const waarde = await opslagGet("medewerkers");
+        if (actief && waarde) setMedewerkers(JSON.parse(waarde));
+      } catch (e) {
+        // nog niets opgeslagen, of geen toegang (niet-beheerder) — lege lijst blijft staan
+      }
+      if (actief) setMedewerkersGeladen(true);
+    })();
+    return () => {
+      actief = false;
+    };
+  }, []);
+
+  // Alleen daadwerkelijk opslaan als deze gebruiker beheerder is — de server wijst een PUT
+  // hierop hoe dan ook af voor niet-beheerders, maar zo voorkomen we ook een gegarandeerd
+  // mislukkende aanroep (en de bijbehorende console-foutmelding) voor iedere andere gebruiker.
+  useEffect(() => {
+    if (!medewerkersGeladen || !benIkBeheerder) return;
+    opslagSetDebounced("medewerkers", JSON.stringify(medewerkers));
+  }, [medewerkers, medewerkersGeladen, benIkBeheerder]);
+
+  function voegMedewerkerToe() {
+    setMedewerkers((prev) => [...prev, { id: nieuwId("mw"), naam: "", email: "", telefoonnummer: "", functie: "", rol: "normaal" }]);
+  }
+  function bijwerkMedewerker(id, veld, waarde) {
+    setMedewerkers((prev) => prev.map((m) => (m.id === id ? { ...m, [veld]: waarde } : m)));
+  }
+  function verwijderMedewerker(id) {
+    setMedewerkers((prev) => prev.filter((m) => m.id !== id));
+  }
+
   // Standaardteksten laden uit persistente opslag.
   useEffect(() => {
     let actief = true;
@@ -2626,6 +2696,31 @@ export default function OffertetoolApp() {
       ...prev,
       [dienstId]: { ...(prev[dienstId] || {}), [veld]: waarde },
     }));
+  }
+
+  // Op verzoek (knop "Kolom aanmaken in Dataverse" per dienst) een eigen bedrag- en
+  // omschrijvingkolom laten aanmaken op cr283_tarief — zie api/dataverse-kolom-aanmaken en
+  // maakTariefKolommenVoorDienst in api/_gedeeld/onboarding.js. Beheerders-only (de knop
+  // wordt alleen getoond aan benIkBeheerder, en de server wijst het hoe dan ook af voor
+  // anderen). Vult bij succes meteen de kolomnamen in bij deze dienst in de tabel hieronder.
+  const [kolomAanmakenStatus, setKolomAanmakenStatus] = useState({});
+
+  async function maakDataverseKolomAan(dienst) {
+    setKolomAanmakenStatus((prev) => ({ ...prev, [dienst.id]: { bezig: true, fout: null } }));
+    try {
+      const res = await fetch("/api/dataverse-kolom-aanmaken", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "offertetool" },
+        body: JSON.stringify({ dienstId: dienst.id, dienstNaam: dienst.naam }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      bijwerkTariefKolomVoorDienst(dienst.id, "bedragKolom", data.bedragKolom);
+      bijwerkTariefKolomVoorDienst(dienst.id, "omschrijvingKolom", data.omschrijvingKolom);
+      setKolomAanmakenStatus((prev) => ({ ...prev, [dienst.id]: { bezig: false, fout: null } }));
+    } catch (err) {
+      setKolomAanmakenStatus((prev) => ({ ...prev, [dienst.id]: { bezig: false, fout: err.message || "Aanmaken mislukt." } }));
+    }
   }
 
   // Verbindingsstatus-check (api/dataverse-status) en het bekijken van de daadwerkelijk
@@ -3813,6 +3908,15 @@ export default function OffertetoolApp() {
               onOpdrachtbevestigingTeksten={openOpdrachtbevestigingTeksten}
             />
 
+            {benIkBeheerderGeladen && !benIkBeheerder ? (
+              <div className="ot-card" style={{ padding: 24, marginTop: 8 }}>
+                <p style={{ fontSize: 13.5, color: "#5B6259", margin: 0 }}>
+                  Deze instellingen zijn alleen zichtbaar voor beheerders. Vraag een beheerder (bijv.
+                  automatisering@activaa.nl) als hier iets aangepast moet worden.
+                </p>
+              </div>
+            ) : (
+              <>
             <label className="ot-label" style={{ marginBottom: 2, display: "block", fontSize: 15, fontWeight: 700 }}>
               Wie schrijven we aan namens?
             </label>
@@ -4176,12 +4280,16 @@ export default function OffertetoolApp() {
                     <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: "#8A9089", borderBottom: "1px solid #E2E4DF" }}>Dienst</th>
                     <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: "#8A9089", borderBottom: "1px solid #E2E4DF" }}>Kolom voor bedrag</th>
                     <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: "#8A9089", borderBottom: "1px solid #E2E4DF" }}>Kolom voor omschrijving</th>
+                    {benIkBeheerder && (
+                      <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: "#8A9089", borderBottom: "1px solid #E2E4DF" }}></th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
                   {dienstenCatalogus.map((dienst) => {
                     const rij = tariefKolomMapping[dienst.id] || {};
                     const catNaam = categorieen.find((c) => c.id === dienst.categorie)?.naam;
+                    const kolomStatus = kolomAanmakenStatus[dienst.id] || {};
                     return (
                       <tr key={dienst.id} style={{ borderBottom: "1px solid #F0EEE6" }}>
                         <td style={{ padding: "8px 4px", verticalAlign: "top" }}>
@@ -4206,18 +4314,39 @@ export default function OffertetoolApp() {
                             placeholder={TARIEF_KOLOM_MAPPING_STANDAARD.omschrijvingKolom}
                           />
                         </td>
+                        {benIkBeheerder && (
+                          <td style={{ padding: "8px 4px", verticalAlign: "top" }}>
+                            <button
+                              className="ot-btn-secondary"
+                              onClick={() => maakDataverseKolomAan(dienst)}
+                              disabled={kolomStatus.bezig}
+                              style={{ whiteSpace: "nowrap" }}
+                            >
+                              {kolomStatus.bezig ? "Bezig…" : "Kolom aanmaken in Dataverse"}
+                            </button>
+                            {kolomStatus.fout && (
+                              <p style={{ fontSize: 11.5, color: "#B3261E", margin: "6px 0 0", maxWidth: 220 }}>{kolomStatus.fout}</p>
+                            )}
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
                   {dienstenCatalogus.length === 0 && (
                     <tr>
-                      <td colSpan={3} style={{ padding: "10px 4px", fontSize: 12.5, color: "#8A9089" }}>
+                      <td colSpan={benIkBeheerder ? 4 : 3} style={{ padding: "10px 4px", fontSize: 12.5, color: "#8A9089" }}>
                         Nog geen diensten in de catalogus.
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
+              <p style={{ fontSize: 12, color: "#8A9089", margin: "12px 0 0" }}>
+                "Kolom aanmaken in Dataverse" maakt een eigen bedrag- en omschrijvingkolom voor deze dienst aan
+                (via dezelfde Metadata-API als het eenmalige opzet-endpoint) en vult de velden hierboven meteen
+                automatisch in. Dit vereist dat de Application User permanent de systeemrol "System Customizer"
+                (of hoger) heeft — zie README.md.
+              </p>
               <p style={{ fontSize: 12, color: "#8A9089", margin: "12px 0 0" }}>
                 Gebruik de logische (technische) kolomnaam uit Dataverse, bijv. "cr283_prijs" — niet de weergavenaam.
                 Let op: "cr283_dienstomschrijving" is ook de naamgevende kolom van de Tarief-tabel; deze wordt hoe dan
@@ -4343,6 +4472,76 @@ export default function OffertetoolApp() {
                 </div>
               )}
             </div>
+
+            <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
+              <span>Medewerkers &amp; beheerders</span>
+              <button className="ot-btn-ghost" onClick={voegMedewerkerToe}>
+                <PlusCircle size={14} />
+                Medewerker toevoegen
+              </button>
+            </div>
+            <div className="ot-card" style={{ padding: 24 }}>
+              <p style={{ fontSize: 12.5, color: "#5B6259", margin: "0 0 16px" }}>
+                Bepaalt wie het Instellingen-scherm mag zien en wie op verzoek een eigen Dataverse-kolom mag
+                aanmaken (rol "Beheerder"). automatisering@activaa.nl en alings@activaa.nl zijn altijd beheerder,
+                ook als ze hieronder niet (meer) voorkomen.
+              </p>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: "#8A9089", borderBottom: "1px solid #E2E4DF" }}>Naam</th>
+                    <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: "#8A9089", borderBottom: "1px solid #E2E4DF" }}>E-mail</th>
+                    <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: "#8A9089", borderBottom: "1px solid #E2E4DF" }}>Telefoonnummer</th>
+                    <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: "#8A9089", borderBottom: "1px solid #E2E4DF" }}>Functie</th>
+                    <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: "#8A9089", borderBottom: "1px solid #E2E4DF" }}>Rol</th>
+                    <th style={{ borderBottom: "1px solid #E2E4DF" }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {medewerkers.map((mw) => (
+                    <tr key={mw.id} style={{ borderBottom: "1px solid #F0EEE6" }}>
+                      <td style={{ padding: "8px 4px" }}>
+                        <input type="text" className="ot-input" value={mw.naam} onChange={(e) => bijwerkMedewerker(mw.id, "naam", e.target.value)} placeholder="Naam" />
+                      </td>
+                      <td style={{ padding: "8px 4px" }}>
+                        <input type="email" className="ot-input" value={mw.email} onChange={(e) => bijwerkMedewerker(mw.id, "email", e.target.value)} placeholder="naam@activaa.nl" />
+                      </td>
+                      <td style={{ padding: "8px 4px" }}>
+                        <input type="text" className="ot-input" value={mw.telefoonnummer} onChange={(e) => bijwerkMedewerker(mw.id, "telefoonnummer", e.target.value)} placeholder="06-12345678" />
+                      </td>
+                      <td style={{ padding: "8px 4px" }}>
+                        <input type="text" className="ot-input" value={mw.functie} onChange={(e) => bijwerkMedewerker(mw.id, "functie", e.target.value)} placeholder="Functie" />
+                      </td>
+                      <td style={{ padding: "8px 4px" }}>
+                        <select className="ot-input" value={mw.rol} onChange={(e) => bijwerkMedewerker(mw.id, "rol", e.target.value)}>
+                          <option value="normaal">Normaal</option>
+                          <option value="beheerder">Beheerder</option>
+                        </select>
+                      </td>
+                      <td style={{ padding: "8px 4px" }}>
+                        <button
+                          onClick={() => verwijderMedewerker(mw.id)}
+                          title="Medewerker verwijderen"
+                          style={{ border: "1px solid #E2C4B0", background: "#FBF2EC", color: "#B14A2E", borderRadius: 8, padding: 9, cursor: "pointer", display: "flex" }}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {medewerkers.length === 0 && (
+                    <tr>
+                      <td colSpan={6} style={{ padding: "10px 4px", fontSize: 12.5, color: "#8A9089" }}>
+                        Nog geen medewerkers toegevoegd — alleen de vaste noodbeheerders (automatisering@activaa.nl,
+                        alings@activaa.nl) hebben op dit moment toegang.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+              </>
+            )}
 
             <div style={{ display: "flex", justifyContent: "flex-start", marginTop: 22 }}>
               <button className="ot-btn-secondary" onClick={() => setStap(terugNaarStap)}>
