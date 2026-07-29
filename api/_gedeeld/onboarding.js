@@ -1,5 +1,7 @@
+const crypto = require("crypto");
 const { PDFDocument, StandardFonts, rgb, PDFString } = require("pdf-lib");
 const { haalInstellingWaarde } = require("./instellingen-opslag");
+const { slaOpdrachtbevestigingRecordOp } = require("./offertes-opslag");
 
 // ---------------------------------------------------------------------------
 // Authenticatie — zelfde app-registratie (DYNAMICS_CLIENT_ID) als de rest van de
@@ -1116,10 +1118,22 @@ async function maakOnboardingTaak({ accountId, managerId, bestandsUrl, dataverse
 const TAAK_INSTELLINGEN_STANDAARD = {
   offerte: { actief: true, onderwerp: "Onboarding klant", categorie: 8009 },
   opdrachtbevestiging: { actief: false, onderwerp: "Opdrachtbevestiging ondertekend", categorie: 8009 },
+  // Taak bij een automatisch aangemaakt concept ná een verstreken tarieven-einddatum (zie
+  // verwerkVerlopenTarieven hieronder) — staat, anders dan de opdrachtbevestiging-taak
+  // hierboven, standaard AAN: het hele punt van deze taak is juist dat iemand het nieuwe
+  // concept opmerkt en controleert, dus een stille standaard-uit zou de functie zonder
+  // verdere actie van de gebruiker onopgemerkt laten.
+  verlopenConcept: { actief: true, onderwerp: "Concept-opdrachtbevestiging klaar ter controle", categorie: 8009 },
+};
+
+const TAAK_INSTELLINGEN_SLEUTELS = {
+  offerte: "taak-instellingen-offerte",
+  opdrachtbevestiging: "taak-instellingen-opdrachtbevestiging",
+  verlopenConcept: "taak-instellingen-verlopen-concept",
 };
 
 async function haalTaakInstellingen(soort) {
-  const sleutel = soort === "opdrachtbevestiging" ? "taak-instellingen-opdrachtbevestiging" : "taak-instellingen-offerte";
+  const sleutel = TAAK_INSTELLINGEN_SLEUTELS[soort] || TAAK_INSTELLINGEN_SLEUTELS.offerte;
   const standaard = TAAK_INSTELLINGEN_STANDAARD[soort] || TAAK_INSTELLINGEN_STANDAARD.offerte;
   try {
     const ruw = await haalInstellingWaarde(sleutel);
@@ -1129,6 +1143,119 @@ async function haalTaakInstellingen(soort) {
   } catch (e) {
     return standaard;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Automatisch een concept-vervolg-opdrachtbevestiging klaarzetten zodra de tarieven-einddatum
+// (data.tariefEinddatum, zie src/App.jsx) van een geaccepteerde opdrachtbevestiging verstreken
+// is — plus, indien ingesteld, een taak in Dynamics zodat iemand het concept ook daadwerkelijk
+// opmerkt. Zie README, sectie "Automatisch concept na einddatum tarieven".
+//
+// Wordt aangeroepen vanuit api/opdrachtbevestigingen (het lijst-overzicht-endpoint) met de
+// daar toch al opgehaalde volledige recordlijst — geen aparte tijdgestuurde achtergrondfunctie
+// nodig (die is op de huidige Azure Static Web Apps-hosting niet betrouwbaar mogelijk, zie
+// uitgeschakeld/opschonen-timerfunctie). Draait dus automatisch mee zodra iemand het
+// opdrachtbevestigingen-overzicht opent, en is **idempotent** (zie heeftAlVervolg) — meerdere
+// collega's die op dezelfde dag het overzicht openen, leidt nooit tot dubbele concepten.
+// ---------------------------------------------------------------------------
+
+function vandaagIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function volgendeDagIso(datumIso) {
+  const datum = new Date(`${datumIso}T00:00:00Z`);
+  datum.setUTCDate(datum.getUTCDate() + 1);
+  return datum.toISOString().slice(0, 10);
+}
+
+async function verwerkVerlopenTarieven(alleRuweRecords, contextLog) {
+  const heeftAlVervolg = new Set(alleRuweRecords.map((r) => r.data?.herbevestigingVanId).filter(Boolean));
+  const vandaag = vandaagIso();
+  const verlopen = alleRuweRecords.filter(
+    (r) => r.status === "geaccepteerd" && r.data?.tariefEinddatum && r.data.tariefEinddatum <= vandaag && !heeftAlVervolg.has(r.id)
+  );
+  if (verlopen.length === 0) return [];
+
+  const taakInstellingen = await haalTaakInstellingen("verlopenConcept");
+  // Lazy: alleen daadwerkelijk bij Dynamics inloggen als er iets gevonden is én de taak-
+  // instelling aanstaat — bij een leeg overzicht (of de instelling uit) kost dit dus geen
+  // extra Dataverse-aanroep bovenop de normale, snelle lijst-weergave.
+  let dataverseToken = null;
+
+  const nieuweRecords = [];
+  for (const bron of verlopen) {
+    try {
+      const nu = new Date().toISOString();
+      const nieuwId = `opdrachtbevestiging-${crypto.randomUUID()}`;
+      const nieuwRecord = {
+        id: nieuwId,
+        soort: "opdrachtbevestiging",
+        aangemaaktOp: nu,
+        aangemaaktDoor: bron.aangemaaktDoor || "Onbekend",
+        aangemaaktDoorEmail: bron.aangemaaktDoorEmail || "",
+        gewijzigdOp: nu,
+        gewijzigdDoor: bron.aangemaaktDoor || "Onbekend",
+        klantNamen: bron.klantNamen || [],
+        klantGroepen: bron.klantGroepen || [],
+        status: "in_bewerking",
+        opdrachttypeId: bron.opdrachttypeId || null,
+        opdrachttypeNaam: bron.opdrachttypeNaam || "",
+        // Duidelijk gemarkeerd als automatisch aangemaakt, zodat het overzicht in de tool dit
+        // apart kan tonen ("controleer en verstuur") i.p.v. het te laten lijken op een concept
+        // dat een collega zelf is gestart.
+        automatischGegenereerd: true,
+        automatischGegenereerdVan: bron.id,
+        data: {
+          ...(bron.data || {}),
+          // Koppelt dit concept aan de verlopen opdrachtbevestiging (zelfde mechanisme als de
+          // handmatige herbevestiging-kiezer in de wizard) — bij ondertekenen sluit dit de
+          // tarieven van de vorige rij in Dataverse af.
+          herbevestigingVanId: bron.id,
+          // Nieuwe looptijd pakt door waar de vorige ophield (geen gat tussen de twee
+          // afspraken) — blijft aanpasbaar door de gebruiker vóór het versturen.
+          tariefIngangsdatum: volgendeDagIso(bron.data.tariefEinddatum),
+          // Volgende einddatum is bewust niet over te nemen — moet elke keer opnieuw bewust
+          // gekozen worden (of leeg gelaten voor een doorlopende afspraak).
+          tariefEinddatum: "",
+        },
+      };
+      await slaOpdrachtbevestigingRecordOp(nieuwRecord);
+      nieuweRecords.push(nieuwRecord);
+      contextLog(`Verlopen tarieven: concept ${nieuwId} klaargezet (vervolg op ${bron.id}).`);
+
+      if (taakInstellingen.actief) {
+        const klanten = bron.data?.gekozenKlanten || [];
+        if (!dataverseToken && klanten.length > 0) {
+          try {
+            dataverseToken = await haalDataverseToken();
+          } catch (e) {
+            contextLog(`Verlopen tarieven: inloggen bij Dynamics voor taak-aanmaak mislukt: ${e.message}`);
+          }
+        }
+        for (const klant of klanten) {
+          if (!dataverseToken) break;
+          try {
+            const account = await haalAccountGegevens(klant.id, dataverseToken);
+            const managerId = account?.cr283_Manager?.systemuserid || null;
+            await maakOnboardingTaak({
+              accountId: klant.id,
+              managerId,
+              bestandsUrl: null,
+              dataverseToken,
+              onderwerp: taakInstellingen.onderwerp,
+              categorie: taakInstellingen.categorie,
+            });
+          } catch (e) {
+            contextLog(`Verlopen tarieven: taak aanmaken voor klant ${klant.naam || klant.id} mislukt: ${e.message}`);
+          }
+        }
+      }
+    } catch (e) {
+      contextLog(`Verlopen tarieven: concept aanmaken voor ${bron.id} mislukt: ${e.message}`);
+    }
+  }
+  return nieuweRecords;
 }
 
 // ---------------------------------------------------------------------------
@@ -1225,6 +1352,85 @@ async function haalCategorieOptieWaarde(labelTekst, dataverseToken) {
   return categorieOptieCache[labelTekst];
 }
 
+// Verbindingsstatus + bestaan van de twee tarieven-tabellen — gebruikt door
+// api/dataverse-status, zodat je vanuit de tool zelf kunt controleren of de eenmalige opzet
+// (api/dataverse-schema-setup) geslaagd is, zonder in de Power Apps-portal te hoeven kijken.
+// Best-effort per tabel: bestaat een tabel niet (nog), dan komt dat gewoon als
+// `tabelBestaat: false` terug i.p.v. de hele aanroep te laten mislukken.
+async function haalDataverseStatus() {
+  const resource = process.env.DYNAMICS_RESOURCE_URL;
+  if (!resource) {
+    return { ok: false, verbonden: false, foutmelding: "Dynamics-koppeling is nog niet geconfigureerd (ontbrekende Application Settings)." };
+  }
+  let token;
+  try {
+    token = await haalDataverseToken();
+  } catch (e) {
+    return { ok: false, verbonden: false, foutmelding: `Inloggen bij Dynamics mislukt: ${e.message}` };
+  }
+
+  const status = { ok: true, verbonden: true };
+  const tabellen = [
+    { sleutel: "opdrachtbevestiging", logicalName: `${DV_PREFIX}_opdrachtbevestiging`, aantalVeld: "aantalOpdrachtbevestigingen" },
+    { sleutel: "tarief", logicalName: `${DV_PREFIX}_tarief`, aantalVeld: "aantalTarieven" },
+  ];
+  for (const { sleutel, logicalName, aantalVeld } of tabellen) {
+    try {
+      const setNaam = await haalEntitySetNaam(logicalName, token);
+      status[`${sleutel}TabelBestaat`] = true;
+      try {
+        const telRes = await fetch(`${resource}/api/data/v9.2/${setNaam}/$count`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        status[aantalVeld] = telRes.ok ? parseInt(await telRes.text(), 10) || 0 : null;
+      } catch (e) {
+        status[aantalVeld] = null;
+      }
+    } catch (e) {
+      status[`${sleutel}TabelBestaat`] = false;
+      status[aantalVeld] = null;
+    }
+  }
+  return status;
+}
+
+// Leesbaar overzicht van de weggeschreven cr283_tarief-rijen (optioneel gefilterd op klant) —
+// gebruikt door api/dataverse-tarieven-overzicht. Leest de daadwerkelijk geconfigureerde
+// bedrag-/omschrijvingkolom (zie tariefKolomMapping) i.p.v. altijd de standaardkolommen, zodat
+// het overzicht ook klopt als die kolom-koppeling is aangepast.
+async function haalTarievenOverzicht({ klantId, kolomMapping } = {}) {
+  const resource = process.env.DYNAMICS_RESOURCE_URL;
+  const token = await haalDataverseToken();
+  const mapping = kolomMapping || TARIEF_KOLOM_MAPPING_STANDAARD;
+  const bedragKolom = veiligeKolomNaam(mapping.bedragKolom, TARIEF_KOLOM_MAPPING_STANDAARD.bedragKolom);
+  const omschrijvingKolom = veiligeKolomNaam(mapping.omschrijvingKolom, TARIEF_KOLOM_MAPPING_STANDAARD.omschrijvingKolom);
+  const setNaamTarief = await haalEntitySetNaam(`${DV_PREFIX}_tarief`, token);
+  const kolommen = Array.from(
+    new Set([
+      `${DV_PREFIX}_dienstomschrijving`,
+      bedragKolom,
+      omschrijvingKolom,
+      `${DV_PREFIX}_eenheid`,
+      `${DV_PREFIX}_aantal`,
+      `${DV_PREFIX}_looptijdvan`,
+      `${DV_PREFIX}_looptijdtotenmet`,
+    ])
+  );
+  let url = `${resource}/api/data/v9.2/${setNaamTarief}?$select=${kolommen.join(",")}&$orderby=${DV_PREFIX}_looptijdvan desc&$top=200`;
+  if (klantId) url += `&$filter=${encodeURIComponent(`_${DV_PREFIX}_klant_value eq ${klantId}`)}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } });
+  if (!res.ok) throw new Error(`Ophalen tarieven mislukt (${res.status}): ${await res.text()}`);
+  const data = await res.json();
+  return (data.value || []).map((rij) => ({
+    dienstomschrijving: rij[omschrijvingKolom] ?? rij[`${DV_PREFIX}_dienstomschrijving`] ?? "",
+    bedrag: rij[bedragKolom] ?? null,
+    eenheid: rij[`${DV_PREFIX}_eenheid`] || "",
+    aantal: rij[`${DV_PREFIX}_aantal`] ?? null,
+    looptijdvan: rij[`${DV_PREFIX}_looptijdvan`] || null,
+    looptijdtotenmet: rij[`${DV_PREFIX}_looptijdtotenmet`] || null,
+  }));
+}
+
 // Zoekt eerdere cr283_opdrachtbevestiging-rijen op voor dezelfde combinatie van app-record-ID
 // (ons eigen interne opdrachtbevestiging-ID, zie cr283_appid) en klant — gebruikt bij een
 // herbevestiging/tariefswijziging (record.data.herbevestigingVanId) om (a) de vorige rij te
@@ -1302,6 +1508,11 @@ async function schrijfTarievenNaarDataverse({ record, klant, documentUrl, datave
   // cr283_looptijdvan van de nieuwe tarieven als de dag waarop de vorige tarieven (bij een
   // herbevestiging) worden afgesloten.
   const looptijdVanIso = data.tariefIngangsdatum ? new Date(`${data.tariefIngangsdatum}T00:00:00`).toISOString() : datumIso;
+  // Optionele einddatum (zie tariefEinddatum in src/App.jsx) — leeg/ontbrekend = geen vaste
+  // einddatum, cr283_looptijdtotenmet blijft leeg (loopt door totdat een latere herbevestiging
+  // 'm afsluit via sluitOpenTarievenAf). Wordt ook gebruikt door verwerkVerlopenTarieven
+  // hierboven om verlopen tarieven te herkennen.
+  const looptijdTotEnMetIso = data.tariefEinddatum ? new Date(`${data.tariefEinddatum}T00:00:00`).toISOString() : null;
   const setNaamOB = await haalEntitySetNaam(`${DV_PREFIX}_opdrachtbevestiging`, dataverseToken);
   const setNaamTarief = await haalEntitySetNaam(`${DV_PREFIX}_tarief`, dataverseToken);
 
@@ -1370,6 +1581,7 @@ async function schrijfTarievenNaarDataverse({ record, klant, documentUrl, datave
     tariefBody[bedragKolom] = prijsWaarde;
     if (omschrijvingKolom !== `${DV_PREFIX}_dienstomschrijving`) tariefBody[omschrijvingKolom] = regel.naam;
     if (categorieWaarde !== undefined) tariefBody[`${DV_PREFIX}_categorie`] = categorieWaarde;
+    if (looptijdTotEnMetIso) tariefBody[`${DV_PREFIX}_looptijdtotenmet`] = looptijdTotEnMetIso;
 
     const resTarief = await fetch(`${resource}/api/data/v9.2/${setNaamTarief}`, {
       method: "POST",
@@ -1476,4 +1688,8 @@ module.exports = {
   genereerLogPdf,
   haalGraphToken,
   haalDataverseToken,
+  haalDataverseStatus,
+  haalTarievenOverzicht,
+  haalTariefKolomMapping,
+  verwerkVerlopenTarieven,
 };

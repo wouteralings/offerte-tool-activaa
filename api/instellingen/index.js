@@ -65,6 +65,10 @@ const TOEGESTANE_SLEUTELS = new Set([
   "webhook-opdrachtbevestiging-acceptatie",
   "taak-instellingen-offerte",
   "taak-instellingen-opdrachtbevestiging",
+  // Taak die wordt aangemaakt zodra de tool automatisch een concept-vervolg-
+  // opdrachtbevestiging klaarzet na een verstreken tarieven-einddatum — zie
+  // verwerkVerlopenTarieven in api/_gedeeld/onboarding.js. Staat standaard aan.
+  "taak-instellingen-verlopen-concept",
   // Tarieven-registratie in Dataverse (cr283_opdrachtbevestiging + cr283_tarief) bij
   // ondertekening van een opdrachtbevestiging — zie api/dataverse-schema-setup en
   // schrijfTarievenNaarDataverse in api/_gedeeld/onboarding.js. Staat standaard uit.

@@ -1,0 +1,24 @@
+const { haalDataverseStatus } = require("../_gedeeld/onboarding");
+
+// Verbindingsstatus-check voor Instellingen ("Tarieven — Dataverse inzien"): bevestigt of de
+// tool daadwerkelijk bij Dynamics kan inloggen en of de twee tarieven-tabellen bestaan, zonder
+// dat je daarvoor in de Power Apps-portal hoeft te kijken. Alleen lezend (GET), dus geen
+// CSRF-header-check nodig (zelfde afweging als bij andere GET-endpoints in deze tool).
+// Toegang loopt via de normale "authenticated"-routeregel in staticwebapp.config.json — dit
+// endpoint staat bewust NIET in de anonieme-uitzonderingslijst.
+module.exports = async function (context) {
+  try {
+    const status = await haalDataverseStatus();
+    context.res = {
+      headers: { "Content-Type": "application/json" },
+      body: status,
+    };
+  } catch (err) {
+    context.log.error(err);
+    context.res = {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+      body: { ok: false, verbonden: false, foutmelding: "Er ging iets mis. Probeer het later opnieuw." },
+    };
+  }
+};

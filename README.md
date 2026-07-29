@@ -320,6 +320,62 @@ overgeslagen). Voeg dit handmatig toe in de Power Apps-portal (make.powerapps.co
 Zonder deze stap zijn de tarieven gewoon te bekijken via de tabel "Tarief" zelf in de
 Power Apps-portal — alleen niet direct zichtbaar op het klant-formulier.
 
+### Stap 4 (optioneel) — Verbinding en data zelf inzien vanuit de tool
+
+Onder Instellingen, sectie "Tarieven — Dataverse inzien", staan twee losse hulpmiddelen — geen
+van beide vereist extra opzet, ze werken zodra stap 1 gelukt is:
+
+- **Verbinding testen** — bevestigt of de tool bij Dynamics kan inloggen en of de tabellen
+  "Opdrachtbevestiging" en "Tarief" bestaan (met een rijtelling), zonder in de Power
+  Apps-portal te hoeven kijken. Handig direct na stap 1, en later als er ooit een foutmelding
+  is bij het wegschrijven.
+- **Weggeschreven tarieven bekijken** — haalt de daadwerkelijke `cr283_tarief`-rijen op,
+  optioneel gefilterd op klant (zoek een klant op naam), en toont dienst, bedrag, eenheid,
+  aantal en looptijd in een tabel. Leest de kolommen die je eventueel bij "kolom-koppeling"
+  hierboven hebt aangepast, dus dit overzicht klopt ook als je niet de standaardkolommen
+  gebruikt.
+
+## Automatisch concept na einddatum tarieven
+
+Vul je bij een opdrachtbevestiging een **einddatum tarieven** in (zie de wizard, naast de
+ingangsdatum), dan zet de tool automatisch een concept-vervolg-opdrachtbevestiging klaar zodra
+die datum verstreken is — met dezelfde klant, diensten en tarieven, en al gekoppeld als
+herbevestiging aan de verlopen opdrachtbevestiging (zelfde mechanisme als de handmatige
+herbevestiging-kiezer). De nieuwe ingangsdatum van de tarieven wordt automatisch op de dag ná de
+oude einddatum gezet — geen gat tussen de twee afspraken. Je past het concept vóór het versturen
+zelf nog aan (nieuwe prijzen, nieuwe einddatum, etc.) — er wordt nooit automatisch iets
+verstuurd of ondertekend.
+
+**Geen aparte opzet nodig.** Deze check draait automatisch mee zodra iemand het
+opdrachtbevestigingen-overzicht opent in de tool — dat overzicht haalt toch al alle
+opdrachtbevestigingen op, dus de tool herkent er meteen zelf de verlopen tarieven tussen (in
+plaats van hiervoor een losse, tijdgestuurde achtergrondfunctie of een externe scheduler
+(Power Automate/Logic App) in te richten — dat laatste is op de huidige Azure Static Web Apps-
+hosting sowieso niet betrouwbaar mogelijk, zie `uitgeschakeld/opschonen-timerfunctie`). Meerdere
+collega's die op dezelfde dag het overzicht openen leidt nooit tot dubbele concepten: een
+opdrachtbevestiging die al een vervolg-concept heeft, wordt nooit een tweede keer opgepakt.
+
+Een automatisch aangemaakt concept krijgt in het opdrachtbevestigingen-overzicht een geel label
+"Automatisch concept" naast de klantnaam, zodat duidelijk is dat dit niet handmatig door een
+collega is gestart en eerst gecontroleerd moet worden vóór het versturen.
+
+### Taak in Dynamics bij een automatisch concept
+
+Naast het concept zelf kan de tool ook een taak in Dynamics aanmaken bij de klant, zodat het
+niet onopgemerkt tussen de rest van het overzicht blijft liggen. Ga naar **Instellingen**, sectie
+"Automatisch concept — taak bij verlopen tarieven":
+
+- **Schakelaar** "Taak aanmaken bij automatisch concept" — staat **standaard aan** (anders dan de
+  taak-instellingen bij ondertekening hierboven, die voor opdrachtbevestiging standaard uit
+  staan): het punt van deze taak is juist dat iemand het concept opmerkt, dus een stille
+  standaard-uit zou dat ondermijnen.
+- **Onderwerp** en **categorie** (soort actiecategorie) — zelfde instelbare velden en werking als
+  de taak-instellingen bij ondertekening hierboven.
+
+Ontbreken de Dynamics-rechten (nog) niet, of mislukt het aanmaken van de taak om een andere
+reden, dan blijft het concept zelf gewoon staan — alleen de taak wordt dan overgeslagen (met een
+foutmelding in de logs), net als bij de andere taak-instellingen in deze tool.
+
 ## Tekenlink per e-mail versturen (rechtstreeks, niet via je eigen mailprogramma)
 
 De knop **"Mail versturen"** op het offerte-eindscherm verstuurt de mail rechtstreeks via

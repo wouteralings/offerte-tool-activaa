@@ -60,4 +60,39 @@ async function haalDocumentRecord(id) {
   return null;
 }
 
-module.exports = { haalOfferteRecord, haalDocumentRecord };
+// Geeft alle opdrachtbevestiging-records terug (volledige inhoud, niet alleen de samenvatting
+// zoals normaal in api/opdrachtbevestigingen) — gebruikt door zowel api/opdrachtbevestigingen
+// zelf (om de raw records door te geven aan verwerkVerlopenTarieven) als door
+// verwerkVerlopenTarieven (api/_gedeeld/onboarding.js) om te kunnen kijken naar
+// data.tariefEinddatum en data.herbevestigingVanId, velden die niet in de samenvatting zitten.
+// Eén corrupt/onleesbaar record wordt overgeslagen i.p.v. de hele lijst te laten mislukken.
+async function lijstRuweOpdrachtbevestigingen() {
+  const containerClient = await haalContainerClient("opdrachtbevestiging");
+  const records = [];
+  for await (const blob of containerClient.listBlobsFlat()) {
+    try {
+      const blobClient = containerClient.getBlockBlobClient(blob.name);
+      const downloadResponse = await blobClient.download();
+      const tekst = await streamNaarTekst(downloadResponse.readableStreamBody);
+      records.push(JSON.parse(tekst));
+    } catch (e) {
+      // Overslaan — één onleesbaar record mag de rest niet blokkeren.
+    }
+  }
+  return records;
+}
+
+// Schrijft een volledig opdrachtbevestiging-record weg onder zijn eigen `id` (overwrite) —
+// gebruikt door verwerkVerlopenTarieven (api/_gedeeld/onboarding.js) om een nieuw, automatisch
+// gegenereerd concept aan te maken. Geen merge-met-bestaand-record-logica nodig zoals in
+// api/opdrachtbevestiging (PUT), want dit schrijft altijd een gloednieuw record onder een
+// nieuw, nog niet bestaand ID.
+async function slaOpdrachtbevestigingRecordOp(record) {
+  const containerClient = await haalContainerClient("opdrachtbevestiging");
+  const blobClient = containerClient.getBlockBlobClient(veiligeBlobNaam(record.id));
+  const buffer = Buffer.from(JSON.stringify(record), "utf-8");
+  await blobClient.upload(buffer, buffer.length, { overwrite: true });
+  return record;
+}
+
+module.exports = { haalOfferteRecord, haalDocumentRecord, lijstRuweOpdrachtbevestigingen, slaOpdrachtbevestigingRecordOp };

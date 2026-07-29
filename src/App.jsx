@@ -139,6 +139,10 @@ export const TAAK_CATEGORIE_OPTIES = [
 // hier veilig naar kunnen verwijzen zonder een exhaustive-deps-waarschuwing.
 const TAAK_INSTELLINGEN_OFFERTE_DEFAULT = { actief: true, onderwerp: "Onboarding klant", categorie: 8009 };
 const TAAK_INSTELLINGEN_OPDRACHTBEVESTIGING_DEFAULT = { actief: false, onderwerp: "Opdrachtbevestiging ondertekend", categorie: 8009 };
+// Taak bij een automatisch aangemaakt concept ná een verstreken tarieven-einddatum (zie
+// tariefEinddatum hieronder) — staat, anders dan de opdrachtbevestiging-taak hierboven,
+// standaard AAN: zonder een signaal zou zo'n concept makkelijk onopgemerkt blijven.
+const TAAK_INSTELLINGEN_VERLOPEN_CONCEPT_DEFAULT = { actief: true, onderwerp: "Concept-opdrachtbevestiging klaar ter controle", categorie: 8009 };
 
 // Standaard opdrachttypes (NV COS) — zelf te beheren/uit te breiden via "Opdrachtbevestiging-
 // teksten beheren", dit is alleen de startset. De daadwerkelijke verplichte/optionele
@@ -1150,6 +1154,13 @@ export default function OffertetoolApp() {
   // pas op een latere datum in laat gaan: bepaalt zowel cr283_looptijdvan van de nieuwe
   // tarieven als de dag waarop de oude tarieven worden afgesloten (altijd één dag eerder).
   const [tariefIngangsdatum, setTariefIngangsdatum] = useState("");
+  // Optionele einddatum voor de tarieven van deze opdrachtbevestiging (YYYY-MM-DD) — leeg =
+  // geen vaste einddatum (loopt door). Wordt bij ondertekenen als cr283_looptijdtotenmet op
+  // elke tarief-rij meegeschreven, én gebruikt door verwerkVerlopenTarieven (api/_gedeeld/
+  // onboarding.js, aangeroepen vanuit api/opdrachtbevestigingen zodra het overzicht wordt
+  // geladen) om automatisch een concept-vervolg-opdrachtbevestiging klaar te zetten zodra deze
+  // datum verstreken is — zie README, sectie "Automatisch concept na einddatum tarieven".
+  const [tariefEinddatum, setTariefEinddatum] = useState("");
   // Het gekozen opdrachttype (NV COS) voor de op dit moment "open" opdrachtbevestiging, en de
   // bijbehorende paragrafen — verplicht (alleen-lezen kopie van het beheerde standaardtype) en
   // optioneel (startpunt = de standaard-optionele paragrafen van dat type, per document vrij
@@ -1319,6 +1330,9 @@ export default function OffertetoolApp() {
       // Optionele ingangsdatum voor de tarieven (zie toelichting bij tariefIngangsdatum
       // hierboven) — leeg = ingangsdatum wordt de ondertekendatum.
       tariefIngangsdatum,
+      // Optionele einddatum voor de tarieven (zie toelichting bij tariefEinddatum hierboven) —
+      // leeg = geen vaste einddatum.
+      tariefEinddatum,
     };
   }
 
@@ -1374,6 +1388,7 @@ export default function OffertetoolApp() {
       setOpdrachtbevestigingDienstTekstUit(snap.opdrachtbevestigingDienstTekstUit || {});
       setHerbevestigingVanId(snap.herbevestigingVanId || null);
       setTariefIngangsdatum(snap.tariefIngangsdatum || "");
+      setTariefEinddatum(snap.tariefEinddatum || "");
       setHuidigeOpdrachtbevestigingId(id);
       setHuidigeOpdrachtbevestigingStatus(record.status || OPDRACHTBEVESTIGING_STATUS_STANDAARD);
       setOpdrachtbevestigingMaker({ naam: record.aangemaaktDoor || "", email: record.aangemaaktDoorEmail || "" });
@@ -1452,6 +1467,7 @@ export default function OffertetoolApp() {
     setOpdrachtbevestigingDienstTekstUit({});
     setHerbevestigingVanId(null);
     setTariefIngangsdatum("");
+    setTariefEinddatum("");
   }
 
   function nieuweOpdrachtbevestiging() {
@@ -2425,6 +2441,37 @@ export default function OffertetoolApp() {
     opslagSetDebounced("taak-instellingen-opdrachtbevestiging", JSON.stringify(taakInstellingenOpdrachtbevestiging));
   }, [taakInstellingenOpdrachtbevestiging, taakInstellingenOpdrachtbevestigingGeladen]);
 
+  // taakInstellingenVerlopenConcept: onderwerp/categorie van de taak die wordt aangemaakt zodra
+  // de tool automatisch een concept-vervolg-opdrachtbevestiging klaarzet na een verstreken
+  // tarieven-einddatum (zie tariefEinddatum en verwerkVerlopenTarieven in
+  // api/_gedeeld/onboarding.js) — zelfde patroon als de twee taak-instellingen hierboven, maar
+  // standaard AAN.
+  const [taakInstellingenVerlopenConcept, setTaakInstellingenVerlopenConcept] = useState(TAAK_INSTELLINGEN_VERLOPEN_CONCEPT_DEFAULT);
+  const [taakInstellingenVerlopenConceptGeladen, setTaakInstellingenVerlopenConceptGeladen] = useState(false);
+
+  useEffect(() => {
+    let actief = true;
+    (async () => {
+      try {
+        const waarde = await opslagGet("taak-instellingen-verlopen-concept");
+        if (actief && waarde) {
+          setTaakInstellingenVerlopenConcept({ ...TAAK_INSTELLINGEN_VERLOPEN_CONCEPT_DEFAULT, ...JSON.parse(waarde) });
+        }
+      } catch (e) {
+        // nog niets ingesteld — standaardwaarden (aan) blijven staan
+      }
+      if (actief) setTaakInstellingenVerlopenConceptGeladen(true);
+    })();
+    return () => {
+      actief = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!taakInstellingenVerlopenConceptGeladen) return;
+    opslagSetDebounced("taak-instellingen-verlopen-concept", JSON.stringify(taakInstellingenVerlopenConcept));
+  }, [taakInstellingenVerlopenConcept, taakInstellingenVerlopenConceptGeladen]);
+
   // tariefInstellingenOpdrachtbevestiging: schakelaar voor de tarieven-registratie in
   // Dataverse (cr283_opdrachtbevestiging + cr283_tarief) bij het ondertekenen van een
   // opdrachtbevestiging — zie schrijfTarievenNaarDataverse in api/_gedeeld/onboarding.js.
@@ -2481,6 +2528,71 @@ export default function OffertetoolApp() {
     if (!tariefKolomMappingGeladen) return;
     opslagSetDebounced("tarieven-kolom-mapping", JSON.stringify(tariefKolomMapping));
   }, [tariefKolomMapping, tariefKolomMappingGeladen]);
+
+  // Verbindingsstatus-check (api/dataverse-status) en het bekijken van de daadwerkelijk
+  // weggeschreven tarieven (api/dataverse-tarieven-overzicht) — beide puur op aanvraag (geen
+  // automatische polling), zie de nieuwe sectie "Tarieven — Dataverse inzien" in Instellingen.
+  const [dataverseStatusBezig, setDataverseStatusBezig] = useState(false);
+  const [dataverseStatusResultaat, setDataverseStatusResultaat] = useState(null);
+  const [dataverseStatusFout, setDataverseStatusFout] = useState(null);
+
+  async function testDataverseVerbinding() {
+    setDataverseStatusBezig(true);
+    setDataverseStatusFout(null);
+    setDataverseStatusResultaat(null);
+    try {
+      const res = await fetch("/api/dataverse-status");
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data) throw new Error(data?.foutmelding || data?.error || `HTTP ${res.status}`);
+      setDataverseStatusResultaat(data);
+      if (!data.ok) setDataverseStatusFout(data.foutmelding || "Verbinding mislukt.");
+    } catch (err) {
+      setDataverseStatusFout(err.message || "Verbinding testen mislukt.");
+    } finally {
+      setDataverseStatusBezig(false);
+    }
+  }
+
+  const [dataverseOverzichtZoekterm, setDataverseOverzichtZoekterm] = useState("");
+  const [dataverseOverzichtKlantOpties, setDataverseOverzichtKlantOpties] = useState([]);
+  const [dataverseOverzichtKlantZoekenBezig, setDataverseOverzichtKlantZoekenBezig] = useState(false);
+  const [dataverseOverzichtKlantId, setDataverseOverzichtKlantId] = useState("");
+  const [dataverseOverzichtBezig, setDataverseOverzichtBezig] = useState(false);
+  const [dataverseOverzichtResultaat, setDataverseOverzichtResultaat] = useState(null);
+  const [dataverseOverzichtFout, setDataverseOverzichtFout] = useState(null);
+
+  async function zoekKlantVoorDataverseOverzicht() {
+    if (!dataverseOverzichtZoekterm.trim()) return;
+    setDataverseOverzichtKlantZoekenBezig(true);
+    try {
+      const res = await fetch(`/api/klanten?zoek=${encodeURIComponent(dataverseOverzichtZoekterm)}`);
+      const data = await res.json().catch(() => null);
+      setDataverseOverzichtKlantOpties(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setDataverseOverzichtKlantOpties([]);
+    } finally {
+      setDataverseOverzichtKlantZoekenBezig(false);
+    }
+  }
+
+  async function haalDataverseTarievenOverzichtOp() {
+    setDataverseOverzichtBezig(true);
+    setDataverseOverzichtFout(null);
+    setDataverseOverzichtResultaat(null);
+    try {
+      const url = dataverseOverzichtKlantId
+        ? `/api/dataverse-tarieven-overzicht?klantId=${encodeURIComponent(dataverseOverzichtKlantId)}`
+        : "/api/dataverse-tarieven-overzicht";
+      const res = await fetch(url);
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      setDataverseOverzichtResultaat(data.tarieven || []);
+    } catch (err) {
+      setDataverseOverzichtFout(err.message || "Ophalen mislukt.");
+    } finally {
+      setDataverseOverzichtBezig(false);
+    }
+  }
 
   // webhookOpdrachtbevestiging: zelfde opzet als webhookAcceptatie (leeg = uitgeschakeld),
   // maar los in te stellen van de offerte-webhook hierboven.
@@ -3835,6 +3947,44 @@ export default function OffertetoolApp() {
             </div>
 
             <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
+              <span>Automatisch concept — taak bij verlopen tarieven</span>
+            </div>
+            <div className="ot-card" style={{ padding: 24 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13.5, fontWeight: 600, marginBottom: 16, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={!!taakInstellingenVerlopenConcept.actief}
+                  onChange={(e) => setTaakInstellingenVerlopenConcept((prev) => ({ ...prev, actief: e.target.checked }))}
+                  style={{ width: 16, height: 16, accentColor: "#1C5D8C" }}
+                />
+                Taak aanmaken bij automatisch concept — {taakInstellingenVerlopenConcept.actief ? "aan" : "uit"}
+              </label>
+              <p style={{ fontSize: 12.5, color: "#5B6259", margin: "0 0 14px" }}>
+                Zodra de tool automatisch een concept-vervolg-opdrachtbevestiging klaarzet na een
+                verstreken einddatum van de tarieven (zie de wizard), wordt — als deze schakelaar
+                aanstaat (standaard: aan) — ook een taak in Dynamics aangemaakt bij de klant, zodat
+                dit niet onopgemerkt blijft tussen de rest van het overzicht.
+              </p>
+              <div className="ot-tweekolommen">
+                <div>
+                  <label className="ot-label">Taak — onderwerp</label>
+                  <input
+                    className="ot-input"
+                    value={taakInstellingenVerlopenConcept.onderwerp}
+                    onChange={(e) => setTaakInstellingenVerlopenConcept((prev) => ({ ...prev, onderwerp: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="ot-label">Taak — categorie (soort actiecategorie)</label>
+                  <TaakCategorieSelect
+                    waarde={taakInstellingenVerlopenConcept.categorie}
+                    onChange={(code) => setTaakInstellingenVerlopenConcept((prev) => ({ ...prev, categorie: code }))}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
               <span>SharePoint-opslag na ondertekening</span>
             </div>
             <div className="ot-card" style={{ padding: 24, background: "#F5F6F4" }}>
@@ -3906,6 +4056,122 @@ export default function OffertetoolApp() {
                 overlappende kolomnamen worden bij het wegschrijven genegeerd en dan wordt stilzwijgend teruggevallen
                 op de standaardkolom.
               </p>
+            </div>
+
+            <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
+              <span>Tarieven — Dataverse inzien</span>
+            </div>
+            <div className="ot-card" style={{ padding: 24, marginBottom: 16 }}>
+              <label className="ot-label">Verbinding testen</label>
+              <p style={{ fontSize: 12.5, color: "#5B6259", margin: "0 0 12px" }}>
+                Controleert of de tool daadwerkelijk bij Dynamics kan inloggen en of de tabellen
+                "Opdrachtbevestiging" en "Tarief" bestaan — handig om te checken na de eenmalige opzet, zonder in de
+                Power Apps-portal te hoeven kijken.
+              </p>
+              <button className="ot-btn-secondary" onClick={testDataverseVerbinding} disabled={dataverseStatusBezig}>
+                {dataverseStatusBezig ? "Bezig…" : "Verbinding testen"}
+              </button>
+              {dataverseStatusFout && (
+                <p style={{ fontSize: 12.5, color: "#B3261E", margin: "12px 0 0" }}>{dataverseStatusFout}</p>
+              )}
+              {dataverseStatusResultaat && dataverseStatusResultaat.ok && (
+                <div style={{ fontSize: 12.5, color: "#2E7D4F", margin: "12px 0 0", lineHeight: 1.7 }}>
+                  ✓ Verbonden met Dynamics.
+                  <br />
+                  {dataverseStatusResultaat.opdrachtbevestigingTabelBestaat
+                    ? `✓ Tabel "Opdrachtbevestiging" bestaat (${dataverseStatusResultaat.aantalOpdrachtbevestigingen ?? "?"} rijen).`
+                    : "✗ Tabel \"Opdrachtbevestiging\" bestaat nog niet — draai het opzet-endpoint (zie README)."}
+                  <br />
+                  {dataverseStatusResultaat.tariefTabelBestaat
+                    ? `✓ Tabel "Tarief" bestaat (${dataverseStatusResultaat.aantalTarieven ?? "?"} rijen).`
+                    : "✗ Tabel \"Tarief\" bestaat nog niet — draai het opzet-endpoint (zie README)."}
+                </div>
+              )}
+            </div>
+
+            <div className="ot-card" style={{ padding: 24 }}>
+              <label className="ot-label">Weggeschreven tarieven bekijken</label>
+              <p style={{ fontSize: 12.5, color: "#5B6259", margin: "0 0 12px" }}>
+                Haalt de daadwerkelijke cr283_tarief-rijen op uit Dataverse — optioneel gefilterd op klant (leeg =
+                de meest recente 200 rijen, ongeacht klant).
+              </p>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 12 }}>
+                <div style={{ flex: "1 1 220px" }}>
+                  <label className="ot-label">Klant zoeken (optioneel)</label>
+                  <input
+                    type="text"
+                    className="ot-input"
+                    value={dataverseOverzichtZoekterm}
+                    onChange={(e) => setDataverseOverzichtZoekterm(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && zoekKlantVoorDataverseOverzicht()}
+                    placeholder="Klantnaam…"
+                  />
+                </div>
+                <button
+                  className="ot-btn-secondary"
+                  onClick={zoekKlantVoorDataverseOverzicht}
+                  disabled={dataverseOverzichtKlantZoekenBezig || !dataverseOverzichtZoekterm.trim()}
+                >
+                  {dataverseOverzichtKlantZoekenBezig ? "Zoeken…" : "Zoeken"}
+                </button>
+              </div>
+              {dataverseOverzichtKlantOpties.length > 0 && (
+                <select
+                  className="ot-input"
+                  style={{ marginBottom: 12 }}
+                  value={dataverseOverzichtKlantId}
+                  onChange={(e) => setDataverseOverzichtKlantId(e.target.value)}
+                >
+                  <option value="">Alle klanten</option>
+                  {dataverseOverzichtKlantOpties.map((k) => (
+                    <option key={k.id} value={k.id}>
+                      {k.naam}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <div>
+                <button className="ot-btn-primary" onClick={haalDataverseTarievenOverzichtOp} disabled={dataverseOverzichtBezig}>
+                  {dataverseOverzichtBezig ? "Ophalen…" : "Tarieven ophalen"}
+                </button>
+              </div>
+              {dataverseOverzichtFout && (
+                <p style={{ fontSize: 12.5, color: "#B3261E", margin: "12px 0 0" }}>{dataverseOverzichtFout}</p>
+              )}
+              {dataverseOverzichtResultaat && (
+                <div style={{ marginTop: 16, overflowX: "auto" }}>
+                  {dataverseOverzichtResultaat.length === 0 ? (
+                    <p style={{ fontSize: 12.5, color: "#8A9089" }}>Geen tarieven gevonden.</p>
+                  ) : (
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                      <thead>
+                        <tr style={{ background: "#F0EEE6", textAlign: "left" }}>
+                          <th style={{ padding: "8px 10px" }}>Dienst</th>
+                          <th style={{ padding: "8px 10px" }}>Bedrag</th>
+                          <th style={{ padding: "8px 10px" }}>Eenheid</th>
+                          <th style={{ padding: "8px 10px" }}>Aantal</th>
+                          <th style={{ padding: "8px 10px" }}>Van</th>
+                          <th style={{ padding: "8px 10px" }}>Tot en met</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dataverseOverzichtResultaat.map((t, i) => (
+                          <tr key={i} style={{ borderTop: "1px solid #E2E4DF" }}>
+                            <td style={{ padding: "8px 10px" }}>{t.dienstomschrijving || "—"}</td>
+                            <td style={{ padding: "8px 10px" }}>{typeof t.bedrag === "number" ? currency(t.bedrag) : "—"}</td>
+                            <td style={{ padding: "8px 10px" }}>{t.eenheid || "—"}</td>
+                            <td style={{ padding: "8px 10px" }}>{t.aantal ?? "—"}</td>
+                            <td style={{ padding: "8px 10px" }}>{t.looptijdvan ? new Date(t.looptijdvan).toLocaleDateString("nl-NL") : "—"}</td>
+                            <td style={{ padding: "8px 10px" }}>
+                              {t.looptijdtotenmet ? new Date(t.looptijdtotenmet).toLocaleDateString("nl-NL") : "actief"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
             </div>
 
             <div style={{ display: "flex", justifyContent: "flex-start", marginTop: 22 }}>
@@ -5390,6 +5656,23 @@ export default function OffertetoolApp() {
                           <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>{datumTijd(o.aangemaaktOp)}</td>
                           <td style={{ padding: "10px 14px" }}>
                             {o.klantNamen && o.klantNamen.length > 0 ? o.klantNamen.join(", ") : "—"}
+                            {o.automatischGegenereerd && (
+                              <span
+                                title="Automatisch aangemaakt na een verstreken tarieven-einddatum — controleer en verstuur."
+                                style={{
+                                  marginLeft: 8,
+                                  fontSize: 10.5,
+                                  fontWeight: 700,
+                                  color: "#8A6A1E",
+                                  background: "#FBF3DE",
+                                  borderRadius: 5,
+                                  padding: "2px 6px",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                Automatisch concept
+                              </span>
+                            )}
                           </td>
                           <td style={{ padding: "10px 14px" }}>{o.opdrachttypeNaam || "—"}</td>
                           <td style={{ padding: "10px 14px" }}>
@@ -6930,21 +7213,40 @@ export default function OffertetoolApp() {
                     {opdrachtbevestigingenLijstBezig && " (Lijst wordt geladen…)"}
                   </p>
 
-                  <label className="ot-label" style={{ marginTop: 16 }}>
-                    Ingangsdatum tarieven (optioneel)
-                  </label>
-                  <input
-                    type="date"
-                    className="ot-input"
-                    value={tariefIngangsdatum}
-                    onChange={(e) => setTariefIngangsdatum(e.target.value)}
-                    style={{ maxWidth: 220 }}
-                  />
+                  <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 16 }}>
+                    <div>
+                      <label className="ot-label">Ingangsdatum tarieven (optioneel)</label>
+                      <input
+                        type="date"
+                        className="ot-input"
+                        value={tariefIngangsdatum}
+                        onChange={(e) => setTariefIngangsdatum(e.target.value)}
+                        style={{ maxWidth: 220 }}
+                      />
+                    </div>
+                    <div>
+                      <label className="ot-label">Einddatum tarieven (optioneel)</label>
+                      <input
+                        type="date"
+                        className="ot-input"
+                        value={tariefEinddatum}
+                        onChange={(e) => setTariefEinddatum(e.target.value)}
+                        style={{ maxWidth: 220 }}
+                      />
+                    </div>
+                  </div>
                   <p style={{ fontSize: 12, color: "#8A9089", margin: "10px 0 0" }}>
-                    Leeg = de tarieven gaan in op de datum van ondertekening (zoals voorheen). Vul dit alleen in als
-                    de nieuwe/gewijzigde tarieven op een andere datum in moeten gaan dan de ondertekendatum — bijv. je
-                    tekent vandaag een tariefswijziging die pas per de 1e van volgende maand ingaat. De vorige, nog
-                    openstaande tarieven (bij een herbevestiging hierboven) worden dan afgesloten op de dag ervóór.
+                    Leeg = de tarieven gaan in op de datum van ondertekening (zoals voorheen) en lopen door zonder
+                    einddatum. Vul de ingangsdatum alleen in als de nieuwe/gewijzigde tarieven op een andere datum in
+                    moeten gaan dan de ondertekendatum — bijv. je tekent vandaag een tariefswijziging die pas per de
+                    1e van volgende maand ingaat. De vorige, nog openstaande tarieven (bij een herbevestiging
+                    hierboven) worden dan afgesloten op de dag ervóór.
+                  </p>
+                  <p style={{ fontSize: 12, color: "#8A9089", margin: "6px 0 0" }}>
+                    Vul de einddatum in als deze afspraak op een vaste datum afloopt (bijv. een jaarcontract). Zodra
+                    die datum verstreken is, zet de tool automatisch een concept-vervolg-opdrachtbevestiging klaar in
+                    het overzicht (zichtbaar zodra iemand het overzicht opent) — desgewenst met een taak in Dynamics
+                    erbij, in te stellen onder Instellingen ("Automatisch concept — taak bij verlopen tarieven").
                   </p>
                 </div>
 

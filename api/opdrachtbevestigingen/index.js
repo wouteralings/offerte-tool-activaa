@@ -1,44 +1,27 @@
-const { BlobServiceClient } = require("@azure/storage-blob");
-
-const CONTAINER_NAAM = "opdrachtbevestigingen";
-
-let cachedContainerClient = null;
-
-async function haalContainerClient() {
-  if (cachedContainerClient) return cachedContainerClient;
-
-  const connectionString = process.env.STORAGE_CONNECTION_STRING;
-  if (!connectionString) {
-    throw new Error("MISSING_CONFIG");
-  }
-
-  const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
-  const containerClient = blobServiceClient.getContainerClient(CONTAINER_NAAM);
-  await containerClient.createIfNotExists();
-
-  cachedContainerClient = containerClient;
-  return containerClient;
-}
-
-async function streamNaarTekst(readableStream) {
-  const stukken = [];
-  for await (const stuk of readableStream) {
-    stukken.push(Buffer.isBuffer(stuk) ? stuk : Buffer.from(stuk));
-  }
-  return Buffer.concat(stukken).toString("utf-8");
-}
+const { lijstRuweOpdrachtbevestigingen } = require("../_gedeeld/offertes-opslag");
+const { verwerkVerlopenTarieven } = require("../_gedeeld/onboarding");
 
 module.exports = async function (context, req) {
   try {
-    const containerClient = await haalContainerClient();
+    const alle = await lijstRuweOpdrachtbevestigingen();
+
+    // Automatisch verlopen tarieven (data.tariefEinddatum in het verleden) omzetten naar een
+    // concept-vervolg-opdrachtbevestiging + evt. Dynamics-taak — piggybackt bewust op deze toch
+    // al volledige lijst-ophaal-actie i.p.v. een apart, extern getriggerd endpoint (zie
+    // verwerkVerlopenTarieven in api/_gedeeld/onboarding.js en README, sectie "Automatisch
+    // concept na einddatum tarieven"). Draait dus mee zodra iemand dit overzicht opent; idempotent,
+    // dus nooit een probleem als meerdere collega's op dezelfde dag het overzicht openen. Een
+    // mislukking hier mag het overzicht zelf nooit blokkeren.
+    let nieuweConcepten = [];
+    try {
+      nieuweConcepten = await verwerkVerlopenTarieven(alle, (bericht) => context.log(bericht));
+    } catch (e) {
+      context.log.error("Verlopen-tarieven-verwerking mislukt:", e);
+    }
 
     const samenvattingen = [];
-    for await (const blob of containerClient.listBlobsFlat()) {
+    for (const record of [...alle, ...nieuweConcepten]) {
       try {
-        const blobClient = containerClient.getBlockBlobClient(blob.name);
-        const downloadResponse = await blobClient.download();
-        const tekst = await streamNaarTekst(downloadResponse.readableStreamBody);
-        const record = JSON.parse(tekst);
         // Alleen de samenvatting teruggeven voor het overzicht — niet de volledige
         // inhoud (diensten, prijzen, paragraafteksten), die is alleen nodig bij het
         // daadwerkelijk openen van één specifieke opdrachtbevestiging.
@@ -59,11 +42,15 @@ module.exports = async function (context, req) {
           aantalBekeken: bekekenEvents.length,
           laatstBekekenOp: laatsteBekeken?.op || null,
           laatstBekekenIp: laatsteBekeken?.ip || null,
+          // Zie verwerkVerlopenTarieven — markeert een concept dat automatisch is aangemaakt na
+          // een verstreken tarieven-einddatum, i.p.v. handmatig door een collega gestart, zodat
+          // het overzicht dit apart kan tonen.
+          automatischGegenereerd: !!record.automatischGegenereerd,
         });
       } catch (e) {
         // Eén corrupte/onleesbare opdrachtbevestiging mag de rest van het overzicht
         // niet blokkeren.
-        context.log.error(`Kon opdrachtbevestiging ${blob.name} niet lezen:`, e);
+        context.log.error(`Kon opdrachtbevestiging ${record.id} niet verwerken:`, e);
       }
     }
 
