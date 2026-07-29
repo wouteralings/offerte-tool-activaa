@@ -52,6 +52,10 @@ const TOEGESTANE_SLEUTELS = new Set([
   "algemenevoorwaarden",
   "roadmap",
   "dienstencatalogus",
+  // Vrij te beheren categorieën ("kolommen") waarin diensten worden ingedeeld — zie
+  // "Categorieën beheren" onder Dienstencatalogus beheren en groepeerOpCategorie in
+  // src/App.jsx. Vervangt de eerdere vaste 2-deling (eenmalig/doorlopend).
+  "diensten-categorieen",
   "standaardteksten",
   "webhook-acceptatie",
   // Opdrachtbevestiging: zelf te beheren opdrachttypes (NV COS) + hun verplichte/optionele

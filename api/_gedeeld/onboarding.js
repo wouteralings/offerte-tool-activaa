@@ -85,7 +85,25 @@ const KLEUR = {
   fout: rgb(0.694, 0.29, 0.18), // #B14A2E
 };
 
+// Laatste terugval voor de naam van een categorie — alleen nog relevant voor documenten van
+// vóór categorieën vrij beheerbaar werden (zie CATEGORIEEN_STANDAARD/"Categorieën beheren" in
+// src/App.jsx), die geen data.categorieVolgorde en geen regel.categorieNaam hebben.
 const CATEGORIE_LABELS_PDF = { eenmalig: "Eenmalige werkzaamheden", doorlopend: "Doorlopende dienstverlening" };
+
+// Functioneel identiek aan groepeerOpCategorie in src/App.jsx — hier los gehouden omdat dit
+// bestand CommonJS is en dus niet rechtstreeks uit de React-app kan importeren. Groepeert de
+// opgeslagen regels per categorie, in de volgorde die is vastgelegd op het moment van opslaan
+// (data.categorieVolgorde); documenten van vóór die functie hebben geen categorieVolgorde, dan
+// wordt de volgorde afgeleid uit de regels zelf (eerste voorkomen).
+function groepeerOpCategorie(regels, categorieVolgorde) {
+  const volgorde =
+    Array.isArray(categorieVolgorde) && categorieVolgorde.length > 0
+      ? categorieVolgorde
+      : [...new Map(regels.map((r) => [r.categorie, { id: r.categorie, naam: r.categorieNaam }])).values()];
+  return volgorde
+    .map((c) => ({ cat: c.id, naam: c.naam || CATEGORIE_LABELS_PDF[c.id] || c.id, items: regels.filter((r) => r.categorie === c.id) }))
+    .filter((g) => g.items.length > 0);
+}
 
 async function nieuwPdfDocument() {
   const doc = await PDFDocument.create();
@@ -403,9 +421,7 @@ async function genereerOffertePdf(record) {
     const subtotaal = regels.reduce((som, r) => som + (r.subtotaal || 0), 0);
     const btw = subtotaal * 0.21;
     const totaal = subtotaal + btw;
-    const groepen = ["eenmalig", "doorlopend"]
-      .map((cat) => ({ cat, items: regels.filter((r) => r.categorie === cat) }))
-      .filter((g) => g.items.length > 0);
+    const groepen = groepeerOpCategorie(regels, data.categorieVolgorde);
 
     const koptekstBovenY = s.huidigeY();
     if (gekozenKlanten.length > 1) {
@@ -493,7 +509,7 @@ async function genereerOffertePdf(record) {
 
     groepen.forEach((groep) => {
       s.nieuwePaginaIndienNodig(22);
-      s.regel((CATEGORIE_LABELS_PDF[groep.cat] || groep.cat).toUpperCase(), { size: 9.5, font: bold, kleur: KLEUR.goud, ruimteNa: 16 });
+      s.regel((groep.naam || groep.cat).toUpperCase(), { size: 9.5, font: bold, kleur: KLEUR.goud, ruimteNa: 16 });
       groep.items.forEach((r) => {
         // Dienstnaam mag omslaan (lange namen liepen anders door tot in de
         // aantal-kolom) — de andere kolommen blijven op de eerste regel staan.
@@ -740,9 +756,7 @@ async function genereerOpdrachtbevestigingPdf(record) {
     const subtotaal = regels.reduce((som, r) => som + (r.subtotaal || 0), 0);
     const btw = subtotaal * 0.21;
     const totaal = subtotaal + btw;
-    const groepen = ["eenmalig", "doorlopend"]
-      .map((cat) => ({ cat, items: regels.filter((r) => r.categorie === cat) }))
-      .filter((g) => g.items.length > 0);
+    const groepen = groepeerOpCategorie(regels, data.categorieVolgorde);
 
     const koptekstBovenY = s.huidigeY();
     if (gekozenKlanten.length > 1) {
@@ -832,7 +846,7 @@ async function genereerOpdrachtbevestigingPdf(record) {
 
     groepen.forEach((groep) => {
       s.nieuwePaginaIndienNodig(22);
-      s.regel((CATEGORIE_LABELS_PDF[groep.cat] || groep.cat).toUpperCase(), { size: 9.5, font: bold, kleur: KLEUR.goud, ruimteNa: 16 });
+      s.regel((groep.naam || groep.cat).toUpperCase(), { size: 9.5, font: bold, kleur: KLEUR.goud, ruimteNa: 16 });
       groep.items.forEach((r) => {
         // Toont "10 stroken × 12" als er een factor > 1 is gekozen (aantal, apart vermenigvuldigd
         // met een factor — bv. 10 stroken per maand × 12 maanden), anders gewoon "1 traject" zoals
@@ -1563,7 +1577,16 @@ async function schrijfTarievenNaarDataverse({ record, klant, documentUrl, datave
   const kenmerk = obRecord[`${DV_PREFIX}_kenmerk`];
 
   for (const regel of regels) {
-    const categorieWaarde = await haalCategorieOptieWaarde(regel.categorie === "doorlopend" ? "Doorlopend" : "Eenmalig", dataverseToken);
+    // regel.dataverseSoort is een apart, vast eenmalig/doorlopend-veld per dienst (los van de
+    // vrij beheerbare categorie — zie "Boekhoudkundige aard (Dataverse)" bij Dienstencatalogus
+    // beheren in src/App.jsx), speciaal voor dit Dataverse-optieveld met maar 2 waarden. Regels
+    // van vóór dat veld bestond hebben nog geen dataverseSoort — dan geldt de oude aanname
+    // (regel.categorie was toen zelf altijd "eenmalig" of "doorlopend").
+    const soortLabel =
+      regel.dataverseSoort === "doorlopend" || (!regel.dataverseSoort && regel.categorie === "doorlopend")
+        ? "Doorlopend"
+        : "Eenmalig";
+    const categorieWaarde = await haalCategorieOptieWaarde(soortLabel, dataverseToken);
     const prijsWaarde = regel.opAanvraag || regel.opNacalculatie ? 0 : regel.prijs || 0;
     const tariefBody = {
       // cr283_dienstomschrijving is de naamgevende (primaire) kolom van de Tarief-tabel —

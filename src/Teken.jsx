@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Check, X, Loader2, ShieldCheck, ShieldAlert, Eraser, Download } from "lucide-react";
-import { ACTIVAA_LOGO, CATEGORIE_LABELS, currency, datumTijd, offerteStatusInfo } from "./App.jsx";
+import { ACTIVAA_LOGO, currency, datumTijd, offerteStatusInfo, groepeerOpCategorie } from "./App.jsx";
 
 // Publieke, niet-ingelogde pagina waarmee een klant een offerte kan bekijken en digitaal kan
 // ondertekenen (naam + e-mail + een echte, met muis/vinger getekende handtekening) of expliciet
@@ -283,9 +283,12 @@ export default function TekenPagina({ id }) {
             const subtotaal = regels.reduce((s, r) => s + r.subtotaal, 0);
             const btw = subtotaal * 0.21;
             const totaal = subtotaal + btw;
-            const gegroepeerd = ["eenmalig", "doorlopend"]
-              .map((cat) => ({ cat, items: regels.filter((r) => r.categorie === cat) }))
-              .filter((g) => g.items.length > 0);
+            // record.data.categorieVolgorde is de bevroren categorieën-lijst op het moment van
+            // opslaan (zie groepeerOpCategorie/categorieVolgorde in App.jsx) — deze publieke
+            // pagina heeft geen toegang tot de live catalogus-instellingen. Documenten van vóór
+            // deze functie hebben geen categorieVolgorde; groepeerOpCategorie valt dan terug op
+            // de regels zelf (regel.categorieNaam, of anders CATEGORIE_LABELS).
+            const gegroepeerd = groepeerOpCategorie(regels, record?.data?.categorieVolgorde);
 
             return (
               <div key={klant.id} style={{ marginBottom: 36, paddingBottom: 28, borderBottom: idx < gekozenKlanten.length - 1 ? "2px dashed #E2E4DF" : "none" }}>
@@ -365,7 +368,7 @@ export default function TekenPagina({ id }) {
                       <React.Fragment key={g.cat}>
                         <tr>
                           <td colSpan={4} style={{ padding: "10px 4px 4px", fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "#B98237" }}>
-                            {CATEGORIE_LABELS[g.cat] || g.cat}
+                            {g.naam}
                           </td>
                         </tr>
                         {g.items.map((r) => (

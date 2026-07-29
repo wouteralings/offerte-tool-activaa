@@ -116,6 +116,41 @@ Ga naar je Static Web App → **Omgevingsvariabelen** → **+ Toevoegen**:
 
 Opslaan. De tabel `instellingen` wordt automatisch aangemaakt bij het eerste gebruik.
 
+## Dienstencategorieën beheren
+
+Diensten in de catalogus worden ingedeeld in categorieën ("kolommen") — die indeling is vrij te
+beheren, niet meer beperkt tot de 2 vaste categorieën "Eenmalige werkzaamheden" en "Doorlopende
+dienstverlening" waarmee de tool ooit gestart is (die twee blijven gewoon staan als startpunt,
+maar zijn nu net als elke andere categorie te hernoemen, verplaatsen of verwijderen).
+
+Ga naar **Instellingen → Diensten beheren** → bovenaan staat het blok **"Categorieën"**:
+- **Categorie toevoegen** — maakt een nieuwe, naamloze categorie aan. Zolang er geen naam is
+  ingevuld, toont de tool een duidelijke waarschuwing (oranje rand + tekst) — de categorie is dan
+  al wel bruikbaar, maar nog niet gereed om aan klanten te tonen.
+- Pijltjes verplaatsen een categorie omhoog/omlaag — die volgorde bepaalt ook de volgorde waarin
+  categorieën verschijnen bij "Diensten kiezen" en op de offerte/opdrachtbevestiging zelf.
+- Een categorie verwijderen kan alleen als er geen diensten meer in zitten (de knop is anders
+  uitgeschakeld) — verplaats eerst alle diensten naar een andere categorie.
+
+Bij elke dienst is een **Categorie**-dropdown toegevoegd waarmee je 'm naar een andere categorie
+kunt verplaatsen. Verwijst een dienst (bijv. door een oudere, handmatige aanpassing) naar een
+categorie die niet meer bestaat, dan valt dat op: een rode rand bij dat veld, plus een
+waarschuwing bovenaan het scherm met de namen van de betrokken diensten.
+
+**Al verstuurde offertes/opdrachtbevestigingen blijven ongewijzigd** als je een categorie later
+hernoemt of de volgorde aanpast — de categorienaam en -volgorde worden bevroren op het document
+zelf op het moment van opslaan (net zoals prijzen en dienstnamen dat al deden).
+
+### Boekhoudkundige aard (Dataverse) — los van de categorie
+
+Naast de (vrije) categorie heeft elke dienst een apart veld **"Boekhoudkundige aard (Dataverse)"**
+met maar 2 waarden: **Eenmalig** of **Doorlopend**. Dit is bewust losgekoppeld van de categorie
+hierboven: in Dataverse heeft de `cr283_tarief`-tabel een eigen, vast optieveld `cr283_categorie`
+met precies die 2 waarden (zie "Tarieven-registratie in Dataverse opzetten" verderop) — dat veld
+kan dus niet meegroeien met eigen, vrij benoemde categorieën. Zet dit per dienst op de juiste
+waarde als je de Dataverse-tarievenregistratie gebruikt; voor de rest van de tool (weergave,
+PDF, offerte/opdrachtbevestiging) heeft dit veld geen effect.
+
 ## Offertes bewaren en later wijzigen
 
 Er zijn twee nieuwe Functions bijgekomen: `api/offerte/{id}` (één offerte ophalen/opslaan/

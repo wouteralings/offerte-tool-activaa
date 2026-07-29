@@ -95,10 +95,24 @@ const MOCK_KLANTEN = [
   },
 ];
 
+// Laatste terugval voor de naam van een categorie bij (oude) documenten die zijn opgeslagen
+// vóórdat categorieën vrij beheerbaar werden — zie CATEGORIEEN_STANDAARD en "Categorieën
+// beheren" (Dienstencatalogus beheren) hieronder. Blijft bestaan zodat Teken.jsx en de
+// PDF-generatie (api/_gedeeld/onboarding.js) altijd een leesbare naam kunnen tonen, ook voor
+// documenten zonder data.categorieVolgorde.
 export const CATEGORIE_LABELS = {
   eenmalig: "Eenmalige werkzaamheden",
   doorlopend: "Doorlopende dienstverlening",
 };
+
+// Seed-/standaardcategorieën: het startpunt voor de vrij te beheren categorieënlijst
+// (zie de "categorieen"-state hieronder). Bestaande diensten hebben nu eenmaal
+// categorie "eenmalig" of "doorlopend", dus dit zorgt dat niets breekt bij de eerste
+// keer laden — bewerk/hernoem/vul aan via "Categorieën beheren" onder Dienstencatalogus.
+const CATEGORIEEN_STANDAARD = [
+  { id: "eenmalig", naam: "Eenmalige werkzaamheden" },
+  { id: "doorlopend", naam: "Doorlopende dienstverlening" },
+];
 
 // Status van een offerte: wordt automatisch op "verzonden" gezet bij de eerste opslag
 // (= het moment van afdrukken/PDF), en is daarna handmatig te wijzigen in het overzicht.
@@ -364,6 +378,25 @@ export function currency(n) {
 export function formatteerAantal(aantal, eenheid, factor) {
   const basis = `${aantal} ${eenheid || ""}`.trim();
   return factor && factor !== 1 ? `${basis} × ${factor}` : basis;
+}
+
+// Groepeert een lijst items (diensten of regels — alles met een .categorie-veld) op categorie,
+// in de opgegeven volgorde (categorieVolgorde: [{id, naam}, ...]) — gebruikt zowel hier in
+// App.jsx (met de live "categorieen"-state als volgorde) als in Teken.jsx (met de bevroren
+// data.categorieVolgorde van het opgeslagen document, want de publieke tekenpagina heeft geen
+// toegang tot de live catalogus-instellingen). api/_gedeeld/onboarding.js heeft om dezelfde reden
+// (CommonJS, geen import vanuit deze module mogelijk) een eigen, functioneel identieke kopie voor
+// de PDF-generatie.
+// Documenten van vóór deze functie hebben geen categorieVolgorde — dan wordt de volgorde afgeleid
+// uit de regels zelf (eerste voorkomen), met CATEGORIE_LABELS als laatste terugval voor de naam.
+export function groepeerOpCategorie(items, categorieVolgorde) {
+  const volgorde =
+    Array.isArray(categorieVolgorde) && categorieVolgorde.length > 0
+      ? categorieVolgorde
+      : [...new Map(items.map((it) => [it.categorie, { id: it.categorie, naam: it.categorieNaam }])).values()];
+  return volgorde
+    .map((c) => ({ cat: c.id, naam: c.naam || CATEGORIE_LABELS[c.id] || c.id, items: items.filter((it) => it.categorie === c.id) }))
+    .filter((g) => g.items.length > 0);
 }
 
 export function datumTijd(iso) {
@@ -1066,6 +1099,10 @@ export default function OffertetoolApp() {
 
   const [dienstenCatalogus, setDienstenCatalogus] = useState(INITIAL_CATALOGUS);
   const [catalogusGeladen, setCatalogusGeladen] = useState(false);
+  // Vrij te beheren categorieën ("kolommen") waarin diensten worden ingedeeld — zie
+  // "Categorieën beheren" onder Dienstencatalogus beheren, en groepeerOpCategorie hierboven.
+  const [categorieen, setCategorieen] = useState(CATEGORIEEN_STANDAARD);
+  const [categorieenGeladen, setCategorieenGeladen] = useState(false);
 
   const [zoekKlant, setZoekKlant] = useState("");
   const [gekozenKlanten, setGekozenKlanten] = useState([]); // array van klant-objecten
@@ -1296,6 +1333,10 @@ export default function OffertetoolApp() {
       // bewust NIET van toepassing op de opdrachtbevestiging.
       algemeneToelichting: algemeneToelichtingOpdrachtbevestiging,
       regelsPerKlant,
+      // Bevriest de op dit moment geldende categorieën (id + naam, in de huidige volgorde) op
+      // het document zelf — zie groepeerOpCategorie hierboven. Nodig omdat Teken.jsx en de
+      // PDF-generatie geen toegang hebben tot de live, actuele categorieënlijst.
+      categorieVolgorde: categorieen.map((c) => ({ id: c.id, naam: (c.naam || "").trim() || "Naamloze categorie" })),
       logo,
       afzender,
       algemeneVoorwaarden,
@@ -1779,6 +1820,10 @@ export default function OffertetoolApp() {
       klantToelichtingen,
       roadmapToevoegen,
       regelsPerKlant,
+      // Bevriest de op dit moment geldende categorieën (id + naam, in de huidige volgorde) op
+      // het document zelf — zie groepeerOpCategorie hierboven. Nodig omdat Teken.jsx en de
+      // PDF-generatie geen toegang hebben tot de live, actuele categorieënlijst.
+      categorieVolgorde: categorieen.map((c) => ({ id: c.id, naam: (c.naam || "").trim() || "Naamloze categorie" })),
       // Onderstaande velden zijn nodig zodat de publieke tekenpagina (die geen toegang heeft
       // tot instellingen zoals logo/afzender/voorwaarden) toch de complete, echte offerte kan
       // tonen — inclusief branding — in plaats van een kale samenvatting.
@@ -2271,6 +2316,30 @@ export default function OffertetoolApp() {
     opslagSetDebounced("dienstencatalogus", JSON.stringify(dienstenCatalogus));
   }, [dienstenCatalogus, catalogusGeladen]);
 
+  // Categorieën laden uit persistente opslag (valt terug op de 2 standaardcategorieën, zodat
+  // bestaande diensten met categorie "eenmalig"/"doorlopend" gewoon blijven werken).
+  useEffect(() => {
+    let actief = true;
+    (async () => {
+      try {
+        const waarde = await opslagGet("diensten-categorieen");
+        if (actief && waarde) setCategorieen(JSON.parse(waarde));
+      } catch (e) {
+        // nog niets opgeslagen, of opslag niet beschikbaar — dan blijven de standaardcategorieën staan
+      }
+      if (actief) setCategorieenGeladen(true);
+    })();
+    return () => {
+      actief = false;
+    };
+  }, []);
+
+  // Categorieën bewaren zodra er iets in wijzigt (pas nadat de eerste keer geladen is).
+  useEffect(() => {
+    if (!categorieenGeladen) return;
+    opslagSetDebounced("diensten-categorieen", JSON.stringify(categorieen));
+  }, [categorieen, categorieenGeladen]);
+
   // Standaardteksten laden uit persistente opslag.
   useEffect(() => {
     let actief = true;
@@ -2712,6 +2781,13 @@ export default function OffertetoolApp() {
       }));
   }, [geselecteerd, dienstenCatalogus]);
 
+  // Diensten waarvan de categorie niet (meer) bestaat in de categorieënlijst — bijv. nadat een
+  // categorie is verwijderd terwijl er toch nog een dienst naar verwees. Gebruikt voor de
+  // waarschuwing bovenaan "Dienstencatalogus beheren" en de rode rand bij het Categorie-veld.
+  const dienstenZonderCategorie = useMemo(() => {
+    return dienstenCatalogus.filter((d) => !categorieen.some((c) => c.id === d.categorie));
+  }, [dienstenCatalogus, categorieen]);
+
   // Welke gekozen diensten hebben een vrijwillige standaardtekst voor de opdrachtbevestiging
   // (zie opdrachtbevestigingDienstTeksten) die (nog) niet per-record is uitgezet. Bepaalt wat
   // er standaard in de bijlage van de opdrachtbevestiging komt te staan.
@@ -2843,11 +2919,20 @@ export default function OffertetoolApp() {
       .filter(({ dienst }) => !isUitgeschakeldVoorKlant(klantId, dienst.id))
       .map(({ dienst, aantal, factor }) => {
         const { prijs, opAanvraag, opNacalculatie, variant } = prijsVoor(klantId, dienst);
+        const catInfo = categorieen.find((c) => c.id === dienst.categorie);
         return {
           id: dienst.id,
           naam: variant?.naam ? `${dienst.naam} — ${variant.naam}` : dienst.naam,
           eenheid: dienst.eenheid,
           categorie: dienst.categorie,
+          // Bevriest de op dit moment geldende categorienaam op de regel zelf — nodig omdat de
+          // publieke tekenpagina en PDF-generatie geen toegang hebben tot de live categorieën-
+          // lijst (zie groepeerOpCategorie hierboven en data.categorieVolgorde verderop).
+          categorieNaam: catInfo ? (catInfo.naam || "").trim() || "Naamloze categorie" : dienst.categorie,
+          // Los van de (vrije) categorie hierboven: alleen gebruikt bij het wegschrijven van
+          // tarieven naar Dataverse (cr283_categorie, met maar 2 vaste optiewaarden) — zie
+          // schrijfTarievenNaarDataverse in api/_gedeeld/onboarding.js.
+          dataverseSoort: dienst.dataverseSoort || (dienst.categorie === "doorlopend" ? "doorlopend" : "eenmalig"),
           aantal,
           // Alleen relevant als de dienst "Aantallen gebruiken" heeft aanstaan; anders altijd 1
           // (en dus onzichtbaar in de weergave — zie formatteerAantal hieronder).
@@ -2869,6 +2954,10 @@ export default function OffertetoolApp() {
       {
         id: nieuwId("svc"),
         categorie,
+        // Standaardwaarde voor het aparte Dataverse-veld (los van de categorie hierboven) — bij
+        // de 2 standaardcategorieën blijft dit wat het altijd al was; bij een eigen categorie is
+        // "eenmalig" een neutrale start die desgewenst direct in het bewerkscherm is om te zetten.
+        dataverseSoort: categorie === "doorlopend" ? "doorlopend" : "eenmalig",
         naam: "Nieuwe dienst",
         eenheid: "stuk",
         gebruikAantallen: true,
@@ -2877,6 +2966,29 @@ export default function OffertetoolApp() {
         varianten: [{ id: nieuwId("v"), naam: "", prijs: 0 }],
       },
     ]);
+  }
+  // ---------------- Categorieënbeheer ----------------
+  function voegCategorieToe() {
+    setCategorieen((prev) => [...prev, { id: nieuwId("cat"), naam: "" }]);
+  }
+  function bijwerkCategorieNaam(id, naam) {
+    setCategorieen((prev) => prev.map((c) => (c.id === id ? { ...c, naam } : c)));
+  }
+  function verwijderCategorie(id) {
+    // Veiligheidsklep: de knop staat in de UI al uit zolang er nog diensten in deze categorie
+    // zitten, maar deze check voorkomt ook per ongeluk "wees" diensten via een andere aanroeper.
+    if (dienstenCatalogus.some((d) => d.categorie === id)) return;
+    setCategorieen((prev) => prev.filter((c) => c.id !== id));
+  }
+  function verplaatsCategorie(id, richting) {
+    setCategorieen((prev) => {
+      const idx = prev.findIndex((c) => c.id === id);
+      const nieuweIdx = idx + richting;
+      if (idx === -1 || nieuweIdx < 0 || nieuweIdx >= prev.length) return prev;
+      const next = [...prev];
+      [next[idx], next[nieuweIdx]] = [next[nieuweIdx], next[idx]];
+      return next;
+    });
   }
   function verwijderDienst(id) {
     setDienstenCatalogus((prev) => prev.filter((d) => d.id !== id));
@@ -2892,9 +3004,9 @@ export default function OffertetoolApp() {
       prev.map((d) => (d.id === id ? { ...d, [veld]: waarde } : d))
     );
   }
-  // Verplaatst een dienst één plek omhoog/omlaag, alleen binnen zijn eigen categorie
-  // (eenmalig/doorlopend) — de onderlinge volgorde binnen de andere categorie blijft
-  // ongemoeid, en dit is ook de volgorde waarin diensten straks op de offerte verschijnen.
+  // Verplaatst een dienst één plek omhoog/omlaag, alleen binnen zijn eigen categorie —
+  // de onderlinge volgorde binnen een andere categorie blijft ongemoeid, en dit is ook de
+  // volgorde waarin diensten straks op de offerte verschijnen.
   function verplaatsDienst(dienstId, richting) {
     setDienstenCatalogus((prev) => {
       const dienst = prev.find((d) => d.id === dienstId);
@@ -4187,7 +4299,7 @@ export default function OffertetoolApp() {
         {stap === "catalogus" && (
           <StapWrapper
             titel="Dienstencatalogus beheren"
-            toelichting="Optioneel: onderhoud hier alle eenmalige en doorlopende diensten met hun varianten en prijzen. U hoeft dit niet elke keer te doorlopen — wijzigingen gelden meteen voor nieuwe offertes."
+            toelichting="Optioneel: onderhoud hier alle diensten met hun categorie, varianten en prijzen. U hoeft dit niet elke keer te doorlopen — wijzigingen gelden meteen voor nieuwe offertes."
           >
             <OverigBeheerBalk
               actief={stap}
@@ -4198,11 +4310,97 @@ export default function OffertetoolApp() {
               onOpdrachtbevestigingTeksten={openOpdrachtbevestigingTeksten}
             />
 
-            {["eenmalig", "doorlopend"].map((cat) => (
-              <div key={cat}>
+            <div className="ot-cat-koptekst">
+              <span>Categorieën</span>
+              <button className="ot-btn-ghost" onClick={voegCategorieToe}>
+                <PlusCircle size={14} />
+                Categorie toevoegen
+              </button>
+            </div>
+            <p style={{ fontSize: 12, color: "#8A9089", margin: "0 0 12px" }}>
+              Zelf te beheren indeling ("kolommen") waarin diensten worden getoond — hier, bij het
+              kiezen van diensten, en op de offerte/opdrachtbevestiging zelf. De volgorde hieronder
+              bepaalt ook de volgorde waarin categorieën daar verschijnen.
+            </p>
+            <div style={{ display: "grid", gap: 8, marginBottom: 28 }}>
+              {categorieen.map((cat, i) => {
+                const naamLeeg = !(cat.naam || "").trim();
+                const aantalDiensten = dienstenCatalogus.filter((d) => d.categorie === cat.id).length;
+                return (
+                  <div
+                    key={cat.id}
+                    className="ot-card"
+                    style={{ padding: 12, display: "flex", alignItems: "center", gap: 10, borderColor: naamLeeg ? "#E2A03F" : undefined }}
+                  >
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      <button
+                        onClick={() => verplaatsCategorie(cat.id, -1)}
+                        disabled={i === 0}
+                        title="Naar boven verplaatsen"
+                        style={{ border: "1px solid #C8CDC5", background: "#fff", borderRadius: 6, padding: "3px 6px", cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.35 : 1, display: "flex" }}
+                      >
+                        <ChevronUp size={13} />
+                      </button>
+                      <button
+                        onClick={() => verplaatsCategorie(cat.id, 1)}
+                        disabled={i === categorieen.length - 1}
+                        title="Naar beneden verplaatsen"
+                        style={{ border: "1px solid #C8CDC5", background: "#fff", borderRadius: 6, padding: "3px 6px", cursor: i === categorieen.length - 1 ? "default" : "pointer", opacity: i === categorieen.length - 1 ? 0.35 : 1, display: "flex" }}
+                      >
+                        <ChevronDown size={13} />
+                      </button>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <input
+                        className="ot-input"
+                        placeholder="Naam van de categorie…"
+                        value={cat.naam}
+                        onChange={(e) => bijwerkCategorieNaam(cat.id, e.target.value)}
+                        style={naamLeeg ? { borderColor: "#E2A03F" } : undefined}
+                      />
+                      {naamLeeg && (
+                        <p style={{ fontSize: 11.5, color: "#B14A2E", margin: "4px 0 0" }}>
+                          ⚠ Geef deze categorie een naam — zonder naam is hij niet bruikbaar op offerte/opdrachtbevestiging.
+                        </p>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: "#8A9089", whiteSpace: "nowrap" }}>
+                      {aantalDiensten} {aantalDiensten === 1 ? "dienst" : "diensten"}
+                    </div>
+                    <button
+                      onClick={() => verwijderCategorie(cat.id)}
+                      disabled={aantalDiensten > 0}
+                      title={aantalDiensten > 0 ? "Verplaats eerst alle diensten naar een andere categorie" : "Categorie verwijderen"}
+                      style={{ border: "1px solid #E2C4B0", background: "#FBF2EC", color: "#B14A2E", borderRadius: 8, padding: 9, cursor: aantalDiensten > 0 ? "default" : "pointer", opacity: aantalDiensten > 0 ? 0.35 : 1, display: "flex" }}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                );
+              })}
+              {categorieen.length === 0 && (
+                <p style={{ fontSize: 12.5, color: "#8A9089" }}>Nog geen categorieën — voeg er hierboven een toe.</p>
+              )}
+            </div>
+
+            {dienstenZonderCategorie.length > 0 && (
+              <div className="ot-card" style={{ padding: 16, marginBottom: 24, borderColor: "#E2A03F", background: "#FCF6E8" }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: "#8A6A1E", marginBottom: 6 }}>
+                  ⚠ {dienstenZonderCategorie.length} {dienstenZonderCategorie.length === 1 ? "dienst heeft" : "diensten hebben"} geen geldige categorie
+                </div>
+                <p style={{ fontSize: 12.5, color: "#5B6259", margin: 0 }}>
+                  {dienstenZonderCategorie.map((d) => d.naam).join(", ")} — waarschijnlijk doordat de
+                  categorie is verwijderd. Kies hieronder bij de betreffende dienst een nieuwe
+                  categorie (herkenbaar aan de rode rand bij "Categorie").
+                </p>
+              </div>
+            )}
+
+            {categorieen.map((cat) => (
+              <div key={cat.id}>
                 <div className="ot-cat-koptekst">
-                  <span>{CATEGORIE_LABELS[cat]}</span>
-                  <button className="ot-btn-ghost" onClick={() => voegDienstToe(cat)}>
+                  <span>{(cat.naam || "").trim() || "Naamloze categorie"}</span>
+                  <button className="ot-btn-ghost" onClick={() => voegDienstToe(cat.id)}>
                     <PlusCircle size={14} />
                     Dienst toevoegen
                   </button>
@@ -4210,7 +4408,7 @@ export default function OffertetoolApp() {
 
                 <div style={{ display: "grid", gap: 12 }}>
                   {dienstenCatalogus
-                    .filter((d) => d.categorie === cat)
+                    .filter((d) => d.categorie === cat.id)
                     .map((dienst, i, lijst) => (
                       <div key={dienst.id} className="ot-card" style={{ padding: 18 }}>
                         <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "flex-end" }}>
@@ -4299,6 +4497,39 @@ export default function OffertetoolApp() {
                           >
                             <Trash2 size={15} />
                           </button>
+                        </div>
+                        <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
+                          <div style={{ flex: 1 }}>
+                            <label className="ot-label">Categorie</label>
+                            <select
+                              className="ot-input"
+                              value={dienst.categorie}
+                              onChange={(e) => bijwerkDienstVeld(dienst.id, "categorie", e.target.value)}
+                              style={!categorieen.some((c) => c.id === dienst.categorie) ? { borderColor: "#B14A2E" } : undefined}
+                            >
+                              {!categorieen.some((c) => c.id === dienst.categorie) && (
+                                <option value={dienst.categorie}>⚠ Onbekende categorie ({dienst.categorie})</option>
+                              )}
+                              {categorieen.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {(c.naam || "").trim() || "Naamloze categorie"}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <label className="ot-label" title="Los van de categorie hierboven: alleen gebruikt bij het wegschrijven van tarieven naar Dataverse (cr283_categorie), dat een vast optieveld met 2 waarden heeft.">
+                              Boekhoudkundige aard (Dataverse)
+                            </label>
+                            <select
+                              className="ot-input"
+                              value={dienst.dataverseSoort || (dienst.categorie === "doorlopend" ? "doorlopend" : "eenmalig")}
+                              onChange={(e) => bijwerkDienstVeld(dienst.id, "dataverseSoort", e.target.value)}
+                            >
+                              <option value="eenmalig">Eenmalig</option>
+                              <option value="doorlopend">Doorlopend</option>
+                            </select>
+                          </div>
                         </div>
                         <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, marginBottom: 4, cursor: "pointer", fontSize: 12.5, color: "#5B6259" }}>
                           <input
@@ -4427,14 +4658,14 @@ export default function OffertetoolApp() {
                 />
               </div>
 
-              {["eenmalig", "doorlopend"].map((cat) => (
-                <div key={cat}>
+              {categorieen.map((cat) => (
+                <div key={cat.id}>
                   <div className="ot-cat-koptekst">
-                    <span>{CATEGORIE_LABELS[cat]}</span>
+                    <span>{(cat.naam || "").trim() || "Naamloze categorie"}</span>
                   </div>
                   <div style={{ display: "grid", gap: 12 }}>
                     {dienstenCatalogus
-                      .filter((d) => d.categorie === cat)
+                      .filter((d) => d.categorie === cat.id)
                       .map((dienst) => (
                         <div key={dienst.id} className="ot-card" style={{ padding: 18 }}>
                           <label className="ot-label">{dienst.naam}</label>
@@ -6067,14 +6298,14 @@ export default function OffertetoolApp() {
             titel="Vink diensten aan"
             toelichting="Kies welke diensten meegaan en het aantal. Heeft een dienst varianten of staffels (zoals Klein/Middel/Groot)? Die kiest u per klant bij de volgende stap, Prijzen."
           >
-            {["eenmalig", "doorlopend"].map((cat) => (
-              <div key={cat}>
+            {categorieen.map((cat) => (
+              <div key={cat.id}>
                 <div className="ot-cat-koptekst">
-                  <span>{CATEGORIE_LABELS[cat]}</span>
+                  <span>{(cat.naam || "").trim() || "Naamloze categorie"}</span>
                 </div>
                 <div style={{ display: "grid", gap: 10 }}>
                   {dienstenCatalogus
-                    .filter((d) => d.categorie === cat)
+                    .filter((d) => d.categorie === cat.id)
                     .map((dienst) => {
                       const info = geselecteerd[dienst.id];
                       const actief = !!info;
@@ -6593,9 +6824,10 @@ export default function OffertetoolApp() {
               const klantTotaalExcl = klantRegels.reduce((s, r) => s + r.subtotaal, 0);
               const klantBtw = klantTotaalExcl * 0.21;
               const klantTotaalIncl = klantTotaalExcl + klantBtw;
-              const groepen = ["eenmalig", "doorlopend"]
-                .map((cat) => ({ cat, items: klantRegels.filter((r) => r.categorie === cat) }))
-                .filter((g) => g.items.length > 0);
+              const groepen = groepeerOpCategorie(
+                klantRegels,
+                categorieen.map((c) => ({ id: c.id, naam: (c.naam || "").trim() || "Naamloze categorie" }))
+              );
 
               return (
                 <div
@@ -6676,7 +6908,7 @@ export default function OffertetoolApp() {
                         <React.Fragment key={g.cat}>
                           <tr>
                             <td colSpan={4} style={{ padding: "12px 4px 4px", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "#B98237" }}>
-                              {CATEGORIE_LABELS[g.cat]}
+                              {g.naam}
                             </td>
                           </tr>
                           {g.items.map((r) => (
@@ -7292,9 +7524,10 @@ export default function OffertetoolApp() {
                   const klantTotaalExcl = klantRegels.reduce((s, r) => s + r.subtotaal, 0);
                   const klantBtw = klantTotaalExcl * 0.21;
                   const klantTotaalIncl = klantTotaalExcl + klantBtw;
-                  const groepen = ["eenmalig", "doorlopend"]
-                    .map((cat) => ({ cat, items: klantRegels.filter((r) => r.categorie === cat) }))
-                    .filter((g) => g.items.length > 0);
+                  const groepen = groepeerOpCategorie(
+                    klantRegels,
+                    categorieen.map((c) => ({ id: c.id, naam: (c.naam || "").trim() || "Naamloze categorie" }))
+                  );
                   const gekozenType = opdrachttypes.find((t) => t.id === gekozenOpdrachttypeId);
 
                   return (
@@ -7370,7 +7603,7 @@ export default function OffertetoolApp() {
                             <React.Fragment key={g.cat}>
                               <tr>
                                 <td colSpan={4} style={{ padding: "12px 4px 4px", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "#B98237" }}>
-                                  {CATEGORIE_LABELS[g.cat]}
+                                  {g.naam}
                                 </td>
                               </tr>
                               {g.items.map((r) => (
