@@ -5480,7 +5480,14 @@ export default function OffertetoolApp() {
                                   <button onClick={() => zetAantal(dienst.id, (info.aantal || 1) - 1)} style={stapKnopStyle}>
                                     <Minus size={13} />
                                   </button>
-                                  <span style={{ minWidth: 20, textAlign: "center", fontWeight: 700, fontSize: 14 }}>{info.aantal || 1}</span>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    className="ot-input"
+                                    style={{ width: 52, textAlign: "center", padding: "5px 6px", fontWeight: 700 }}
+                                    value={info.aantal || 1}
+                                    onChange={(e) => zetAantal(dienst.id, Math.max(1, Number(e.target.value) || 1))}
+                                  />
                                   <button onClick={() => zetAantal(dienst.id, (info.aantal || 1) + 1)} style={stapKnopStyle}>
                                     <Plus size={13} />
                                   </button>
