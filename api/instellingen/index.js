@@ -64,9 +64,9 @@ const TOEGESTANE_SLEUTELS = new Set([
   "taak-instellingen-opdrachtbevestiging",
   "mailtekst-opdrachtbevestiging",
   "inleiding-opdrachtbevestiging",
+  // Opdrachtbevestiging heeft alleen een algemene toelichting — géén klantspecifieke/per-dienst
+  // toelichting en géén roadmap, dat is bewust alleen bij de offerte gebleven.
   "bijlage-algemeen-opdrachtbevestiging",
-  "bijlage-per-dienst-opdrachtbevestiging",
-  "bijlage-per-klant-opdrachtbevestiging",
 ]);
 
 module.exports = async function (context, req) {

@@ -1239,19 +1239,14 @@ export default function OffertetoolApp() {
       klantVarianten,
       aangepastePrijzen,
       uitgeschakeldVoorKlant,
-      // Zelfde roadmap-veld als bij de offerte-snapshot hieronder — zorgt dat de
-      // opdrachtbevestiging-PDF dezelfde roadmap-opbouw heeft. De bijlage-teksten zelf zijn
-      // bewust EIGEN teksten (los van offerte, zie *OpdrachtbevestigingGeladen hierboven) —
-      // niet meer gedeeld met de offerte-teksten.
+      // Alleen een algemene toelichting — eigen, losse tekst t.o.v. de offerte (zie
+      // *OpdrachtbevestigingGeladen hierboven). Klantspecifiek, per-dienst en roadmap zijn
+      // bewust NIET van toepassing op de opdrachtbevestiging.
       algemeneToelichting: algemeneToelichtingOpdrachtbevestiging,
-      bijlageToelichtingen: bijlageToelichtingenOpdrachtbevestiging,
-      klantToelichtingen: klantToelichtingenOpdrachtbevestiging,
-      roadmapToevoegen,
       regelsPerKlant,
       logo,
       afzender,
       algemeneVoorwaarden,
-      roadmap: roadmapToevoegen ? roadmap : null,
       namens: { naam: huidigeGebruiker?.naam || "", email: huidigeGebruiker?.email || "" },
       opdrachttypeId: gekozenOpdrachttypeId,
       opdrachttypeNaam: opdrachttypes.find((t) => t.id === gekozenOpdrachttypeId)?.naam || "",
@@ -1301,13 +1296,10 @@ export default function OffertetoolApp() {
       setGekozenOpdrachttypeId(snap.opdrachttypeId || record.opdrachttypeId || null);
       setOpdrachtbevestigingParagrafen(snap.paragrafen || { verplicht: [], optioneel: [] });
       setOpdrachtbevestigingVanuitOfferteId(snap.vanuitOfferteId || null);
-      // Roadmap-veld herstellen — zelfde als openOfferte hieronder, zodat de PDF-opbouw gelijk
-      // blijft. De bijlage-teksten zelf zijn eigen opdrachtbevestiging-teksten (zie hierboven) —
-      // NIET de gedeelde offerte-state, die blijft ongemoeid staan.
+      // Eigen opdrachtbevestiging-tekst herstellen (los van de offerte-state, die blijft
+      // ongemoeid staan). Klantspecifiek/per-dienst en roadmap gelden niet voor de
+      // opdrachtbevestiging, dus die worden hier niet hersteld.
       setAlgemeneToelichtingOpdrachtbevestiging(snap.algemeneToelichting || "");
-      setBijlageToelichtingenOpdrachtbevestiging(snap.bijlageToelichtingen || {});
-      setKlantToelichtingenOpdrachtbevestiging(snap.klantToelichtingen || {});
-      setRoadmapToevoegen(!!snap.roadmapToevoegen);
       setOpdrachtbevestigingInleiding(snap.inleiding || OPDRACHTBEVESTIGING_INLEIDING_DEFAULT);
       setHuidigeOpdrachtbevestigingId(id);
       setHuidigeOpdrachtbevestigingStatus(record.status || OPDRACHTBEVESTIGING_STATUS_STANDAARD);
@@ -1927,29 +1919,20 @@ export default function OffertetoolApp() {
     opslagSetDebounced("bijlage-per-klant", JSON.stringify(klantToelichtingen));
   }, [klantToelichtingen, bijlageGeladen]);
 
-  // Zelfde drie bijlage-teksten, maar dan een eigen, losse set voor opdrachtbevestiging — de
-  // teksten die je bij de stap Bijlage voor offerte intypt, mogen niet meer in de
-  // opdrachtbevestiging verschijnen (en andersom). Beide sets staan gewoon onder elkaar op de
-  // stap Bijlage, net als bij de inleidende tekst hiervoor — geen wisselknop.
-  const [bijlageToelichtingenOpdrachtbevestiging, setBijlageToelichtingenOpdrachtbevestiging] = useState({});
+  // Algemene toelichting voor opdrachtbevestiging: eigen, losse tekst — wat je bij offerte
+  // intypt mag niet in de opdrachtbevestiging verschijnen (en andersom). Staat gewoon onder
+  // de offerte-versie op de stap Bijlage, net als bij de inleidende tekst hiervoor.
+  // Klantspecifiek/per-dienst en de roadmap zijn bewust NIET beschikbaar voor de
+  // opdrachtbevestiging — alleen deze algemene toelichting.
   const [algemeneToelichtingOpdrachtbevestiging, setAlgemeneToelichtingOpdrachtbevestiging] = useState("");
-  const [klantToelichtingenOpdrachtbevestiging, setKlantToelichtingenOpdrachtbevestiging] = useState({});
   const [bijlageOpdrachtbevestigingGeladen, setBijlageOpdrachtbevestigingGeladen] = useState(false);
 
   useEffect(() => {
     let actief = true;
     (async () => {
       try {
-        const [algemeenWaarde, perDienstWaarde, perKlantWaarde] = await Promise.all([
-          opslagGet("bijlage-algemeen-opdrachtbevestiging"),
-          opslagGet("bijlage-per-dienst-opdrachtbevestiging"),
-          opslagGet("bijlage-per-klant-opdrachtbevestiging"),
-        ]);
-        if (actief) {
-          if (algemeenWaarde) setAlgemeneToelichtingOpdrachtbevestiging(algemeenWaarde);
-          if (perDienstWaarde) setBijlageToelichtingenOpdrachtbevestiging(JSON.parse(perDienstWaarde));
-          if (perKlantWaarde) setKlantToelichtingenOpdrachtbevestiging(JSON.parse(perKlantWaarde));
-        }
+        const algemeenWaarde = await opslagGet("bijlage-algemeen-opdrachtbevestiging");
+        if (actief && algemeenWaarde) setAlgemeneToelichtingOpdrachtbevestiging(algemeenWaarde);
       } catch (e) {
         // nog niets opgeslagen, of opslag niet beschikbaar
       }
@@ -1964,16 +1947,6 @@ export default function OffertetoolApp() {
     if (!bijlageOpdrachtbevestigingGeladen) return;
     opslagSetDebounced("bijlage-algemeen-opdrachtbevestiging", algemeneToelichtingOpdrachtbevestiging);
   }, [algemeneToelichtingOpdrachtbevestiging, bijlageOpdrachtbevestigingGeladen]);
-
-  useEffect(() => {
-    if (!bijlageOpdrachtbevestigingGeladen) return;
-    opslagSetDebounced("bijlage-per-dienst-opdrachtbevestiging", JSON.stringify(bijlageToelichtingenOpdrachtbevestiging));
-  }, [bijlageToelichtingenOpdrachtbevestiging, bijlageOpdrachtbevestigingGeladen]);
-
-  useEffect(() => {
-    if (!bijlageOpdrachtbevestigingGeladen) return;
-    opslagSetDebounced("bijlage-per-klant-opdrachtbevestiging", JSON.stringify(klantToelichtingenOpdrachtbevestiging));
-  }, [klantToelichtingenOpdrachtbevestiging, bijlageOpdrachtbevestigingGeladen]);
 
   // standaardTeksten: herbruikbare standaardteksten, net als de dienstencatalogus zelf te beheren
   const [standaardTeksten, setStandaardTeksten] = useState({
@@ -5769,7 +5742,7 @@ export default function OffertetoolApp() {
         {stap === "bijlage" && (
           <StapWrapper
             titel="Toelichting per onderdeel"
-            toelichting="Pas hier de inleidende tekst, een algemene toelichting, iets klantspecifieks en/of een toelichting per dienst aan — steeds apart voor offerte en opdrachtbevestiging, dus wat je bij het ene invult verschijnt niet bij het andere. Alles wordt bewaard en samengevoegd in één gezamenlijke bijlage na de offertes — de klantspecifieke tekst verschijnt op de offerte van díe klant zelf."
+            toelichting="Pas hier de inleidende tekst en een algemene toelichting aan (apart voor offerte en opdrachtbevestiging), en voor de offerte optioneel ook iets klantspecifieks en/of een toelichting per dienst. Alles wordt bewaard en samengevoegd in één gezamenlijke bijlage na de offertes — de klantspecifieke tekst verschijnt op de offerte van díe klant zelf. De opdrachtbevestiging heeft alleen de algemene toelichting; klantspecifiek, per dienst en de roadmap gelden daar niet voor."
           >
             <div className="ot-cat-koptekst" style={{ marginTop: 0 }}>
               <span>Inleidende tekst</span>
@@ -5875,38 +5848,19 @@ export default function OffertetoolApp() {
                   <div className="ot-cat-koptekst">
                     <span>Klantspecifiek</span>
                   </div>
-                  <div style={{ display: "grid", gap: 18 }}>
+                  <div style={{ display: "grid", gap: 12 }}>
                     {gekozenKlanten.map((klant) => (
-                      <div key={klant.id}>
-                        <div style={{ fontSize: 12.5, fontWeight: 700, color: "#5B6259", marginBottom: 8 }}>
-                          {klant.naam}
-                        </div>
-                        <div style={{ display: "grid", gap: 12 }}>
-                          <div className="ot-card" style={{ padding: 16 }}>
-                            <label className="ot-label">Offerte</label>
-                            <textarea
-                              className="ot-input"
-                              rows={3}
-                              placeholder={`Iets specifieks over ${klant.naam}…`}
-                              value={klantToelichtingen[klant.id] || ""}
-                              onChange={(e) =>
-                                setKlantToelichtingen((prev) => ({ ...prev, [klant.id]: e.target.value }))
-                              }
-                            />
-                          </div>
-                          <div className="ot-card" style={{ padding: 16 }}>
-                            <label className="ot-label">Opdrachtbevestiging</label>
-                            <textarea
-                              className="ot-input"
-                              rows={3}
-                              placeholder={`Iets specifieks over ${klant.naam}…`}
-                              value={klantToelichtingenOpdrachtbevestiging[klant.id] || ""}
-                              onChange={(e) =>
-                                setKlantToelichtingenOpdrachtbevestiging((prev) => ({ ...prev, [klant.id]: e.target.value }))
-                              }
-                            />
-                          </div>
-                        </div>
+                      <div key={klant.id} className="ot-card" style={{ padding: 16 }}>
+                        <label className="ot-label">{klant.naam}</label>
+                        <textarea
+                          className="ot-input"
+                          rows={3}
+                          placeholder={`Iets specifieks over ${klant.naam}…`}
+                          value={klantToelichtingen[klant.id] || ""}
+                          onChange={(e) =>
+                            setKlantToelichtingen((prev) => ({ ...prev, [klant.id]: e.target.value }))
+                          }
+                        />
                       </div>
                     ))}
                   </div>
@@ -5918,52 +5872,33 @@ export default function OffertetoolApp() {
                   <div className="ot-cat-koptekst">
                     <span>Diensten</span>
                   </div>
-                  <div style={{ display: "grid", gap: 18 }}>
+                  <div style={{ display: "grid", gap: 12 }}>
                     {geselecteerdeEntries.map(({ dienst }) => (
-                      <div key={dienst.id}>
-                        <div style={{ fontSize: 12.5, fontWeight: 700, color: "#5B6259", marginBottom: 8 }}>
-                          {dienst.naam}
-                        </div>
-                        <div style={{ display: "grid", gap: 12 }}>
-                          <div className="ot-card" style={{ padding: 16 }}>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                              <label className="ot-label">Offerte</label>
-                              {(standaardTeksten.perDienst[dienst.id] || "").trim() !== "" && (
-                                <button
-                                  className="ot-btn-ghost"
-                                  onClick={() =>
-                                    setBijlageToelichtingen((prev) => ({ ...prev, [dienst.id]: standaardTeksten.perDienst[dienst.id] }))
-                                  }
-                                  title="Standaardtekst gebruiken"
-                                >
-                                  <RotateCcw size={12} />
-                                  Standaardtekst
-                                </button>
-                              )}
-                            </div>
-                            <textarea
-                              className="ot-input"
-                              rows={3}
-                              placeholder={`Toelichting bij ${dienst.naam.toLowerCase()}…`}
-                              value={bijlageToelichtingen[dienst.id] || ""}
-                              onChange={(e) =>
-                                setBijlageToelichtingen((prev) => ({ ...prev, [dienst.id]: e.target.value }))
+                      <div key={dienst.id} className="ot-card" style={{ padding: 16 }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <label className="ot-label">{dienst.naam}</label>
+                          {(standaardTeksten.perDienst[dienst.id] || "").trim() !== "" && (
+                            <button
+                              className="ot-btn-ghost"
+                              onClick={() =>
+                                setBijlageToelichtingen((prev) => ({ ...prev, [dienst.id]: standaardTeksten.perDienst[dienst.id] }))
                               }
-                            />
-                          </div>
-                          <div className="ot-card" style={{ padding: 16 }}>
-                            <label className="ot-label">Opdrachtbevestiging</label>
-                            <textarea
-                              className="ot-input"
-                              rows={3}
-                              placeholder={`Toelichting bij ${dienst.naam.toLowerCase()}…`}
-                              value={bijlageToelichtingenOpdrachtbevestiging[dienst.id] || ""}
-                              onChange={(e) =>
-                                setBijlageToelichtingenOpdrachtbevestiging((prev) => ({ ...prev, [dienst.id]: e.target.value }))
-                              }
-                            />
-                          </div>
+                              title="Standaardtekst gebruiken"
+                            >
+                              <RotateCcw size={12} />
+                              Standaardtekst
+                            </button>
+                          )}
                         </div>
+                        <textarea
+                          className="ot-input"
+                          rows={3}
+                          placeholder={`Toelichting bij ${dienst.naam.toLowerCase()}…`}
+                          value={bijlageToelichtingen[dienst.id] || ""}
+                          onChange={(e) =>
+                            setBijlageToelichtingen((prev) => ({ ...prev, [dienst.id]: e.target.value }))
+                          }
+                        />
                       </div>
                     ))}
                   </div>
@@ -6710,15 +6645,6 @@ export default function OffertetoolApp() {
                         {opdrachtbevestigingInleiding}
                       </p>
 
-                      {(klantToelichtingenOpdrachtbevestiging[klant.id] || "").trim() !== "" && (
-                        <div style={{ background: "#EAF2F8", borderRadius: 8, padding: 16, marginBottom: 24 }}>
-                          <div className="ot-label" style={{ color: "#1C5D8C" }}>Speciaal voor {klant.naam}</div>
-                          <div style={{ fontSize: 13.5, lineHeight: 1.6, color: "#3A4038", whiteSpace: "pre-wrap" }}>
-                            {klantToelichtingenOpdrachtbevestiging[klant.id]}
-                          </div>
-                        </div>
-                      )}
-
                       {alleParagrafen.length > 0 && (
                         <div style={{ marginBottom: 24, display: "grid", gap: 18 }}>
                           {alleParagrafen.map((p) => (
@@ -6807,102 +6733,11 @@ export default function OffertetoolApp() {
                   );
                 })}
 
-                {roadmapToevoegen && roadmap.fases.length > 0 && (
-                  <div className="ot-card offerte-doc" style={{ padding: 40 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
-                      <div className="offertetool-serif" style={{ fontSize: 22, fontWeight: 600 }}>
-                        {roadmap.titel}
-                      </div>
-                      {logo && (
-                        <img
-                          src={logo}
-                          alt="Logo"
-                          style={{ maxWidth: 140, maxHeight: 56, objectFit: "contain", flexShrink: 0, marginLeft: 24 }}
-                        />
-                      )}
-                    </div>
-
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-                      {roadmap.fases.map((fase) => (
-                        <div key={fase.id} style={{ display: "flex", flexDirection: "column" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                            <div
-                              style={{
-                                width: 30,
-                                height: 30,
-                                borderRadius: "50%",
-                                background: "#1C5D8C",
-                                color: "#fff",
-                                fontSize: 11,
-                                fontWeight: 700,
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                flexShrink: 0,
-                              }}
-                            >
-                              {fase.markering}
-                            </div>
-                            <div style={{ height: 2, background: "#EAF2F8", flex: 1 }} />
-                          </div>
-                          <div
-                            style={{
-                              border: "1.5px solid #1C5D8C",
-                              borderRadius: 10,
-                              padding: 14,
-                              flex: 1,
-                              display: "flex",
-                              flexDirection: "column",
-                            }}
-                          >
-                            <div style={{ fontSize: 10, fontWeight: 700, color: "#B98237", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 6 }}>
-                              {fase.label}
-                            </div>
-                            <div style={{ fontSize: 13.5, fontWeight: 700, color: "#1C2321", marginBottom: 8 }}>
-                              {fase.titel}
-                            </div>
-                            {fase.puntenTekst
-                              .split("\n")
-                              .map((p) => p.trim())
-                              .filter(Boolean).length > 0 && (
-                              <ul style={{ margin: 0, marginBottom: 10, paddingLeft: 16, fontSize: 11.5, color: "#3A4038", lineHeight: 1.5 }}>
-                                {fase.puntenTekst
-                                  .split("\n")
-                                  .map((p) => p.trim())
-                                  .filter(Boolean)
-                                  .map((punt, i) => (
-                                    <li key={i}>{punt}</li>
-                                  ))}
-                              </ul>
-                            )}
-                            {fase.resultaatTekst && (
-                              <div
-                                style={{
-                                  marginTop: "auto",
-                                  background: "#EAF2F8",
-                                  borderRadius: 6,
-                                  padding: "8px 10px",
-                                }}
-                              >
-                                <div style={{ fontSize: 9.5, fontWeight: 700, color: "#1C5D8C", textTransform: "uppercase", letterSpacing: ".04em" }}>
-                                  {fase.resultaatLabel}
-                                </div>
-                                <div style={{ fontSize: 11.5, fontWeight: 600, color: "#1C2321" }}>{fase.resultaatTekst}</div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {(algemeneToelichtingOpdrachtbevestiging.trim() !== "" ||
-                  geselecteerdeEntries.some(({ dienst }) => (bijlageToelichtingenOpdrachtbevestiging[dienst.id] || "").trim() !== "")) && (
+                {algemeneToelichtingOpdrachtbevestiging.trim() !== "" && (
                   <div className="ot-card offerte-doc" style={{ padding: 40 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                       <div className="offertetool-serif" style={{ fontSize: 22, fontWeight: 600 }}>
-                        Bijlage — toelichting per onderdeel
+                        Bijlage — toelichting
                       </div>
                       {logo && (
                         <img
@@ -6915,25 +6750,8 @@ export default function OffertetoolApp() {
                     <div style={{ fontSize: 12, color: "#8A9089", marginBottom: 24 }}>
                       Deze toelichting geldt voor alle bovenstaande opdrachtbevestigingen.
                     </div>
-                    <div style={{ display: "grid", gap: 20 }}>
-                      {algemeneToelichtingOpdrachtbevestiging.trim() !== "" && (
-                        <div style={{ paddingBottom: 16, borderBottom: "1px solid #E2E4DF" }}>
-                          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>Algemeen</div>
-                          <div style={{ fontSize: 13, color: "#3A4038", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-                            {algemeneToelichtingOpdrachtbevestiging}
-                          </div>
-                        </div>
-                      )}
-                      {geselecteerdeEntries
-                        .filter(({ dienst }) => (bijlageToelichtingenOpdrachtbevestiging[dienst.id] || "").trim() !== "")
-                        .map(({ dienst }) => (
-                          <div key={dienst.id} style={{ paddingBottom: 16, borderBottom: "1px solid #E2E4DF" }}>
-                            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>{dienst.naam}</div>
-                            <div style={{ fontSize: 13, color: "#3A4038", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-                              {bijlageToelichtingenOpdrachtbevestiging[dienst.id]}
-                            </div>
-                          </div>
-                        ))}
+                    <div style={{ fontSize: 13, color: "#3A4038", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                      {algemeneToelichtingOpdrachtbevestiging}
                     </div>
                   </div>
                 )}
