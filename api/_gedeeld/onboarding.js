@@ -1293,18 +1293,32 @@ async function haalTariefInstellingen() {
 }
 
 // Naar welke kolom van cr283_tarief het bedrag en de dienstomschrijving geschreven worden —
-// standaard de kolommen die api/dataverse-schema-setup zelf aanmaakt, aan te passen via
-// Instellingen (zie tariefKolomMapping in src/App.jsx) als een andere kolom gewenst is.
+// standaard de kolommen die api/dataverse-schema-setup zelf aanmaakt, per dienst aan te passen
+// via Instellingen (zie de tabel "Tarieven — kolom-koppeling in Dataverse" in src/App.jsx) als
+// een andere kolom gewenst is.
 const TARIEF_KOLOM_MAPPING_STANDAARD = { bedragKolom: `${DV_PREFIX}_prijs`, omschrijvingKolom: `${DV_PREFIX}_dienstomschrijving` };
 
+// Vorm: { [dienstId]: { bedragKolom, omschrijvingKolom } } — de rauwe, per-dienst opgeslagen
+// instelling. Geen migratie hier nodig voor de oude, vlakke vorm (vóór deze tabel bestond): de
+// client migreert die zelf naar deze vorm zodra Instellingen geladen wordt (zie App.jsx). Mocht
+// er toch nog een server-aanroep zijn vóórdat die migratie heeft gedraaid, dan vangt
+// kolomVoorDienst hieronder ook de oude, vlakke vorm netjes af.
 async function haalTariefKolomMapping() {
   try {
     const ruw = await haalInstellingWaarde("tarieven-kolom-mapping");
-    if (!ruw) return TARIEF_KOLOM_MAPPING_STANDAARD;
-    return { ...TARIEF_KOLOM_MAPPING_STANDAARD, ...JSON.parse(ruw) };
+    if (!ruw) return {};
+    return JSON.parse(ruw) || {};
   } catch (e) {
-    return TARIEF_KOLOM_MAPPING_STANDAARD;
+    return {};
   }
+}
+
+// Geeft de ingestelde kolomnaam (bedragKolom/omschrijvingKolom) voor één specifieke dienst terug
+// — ondersteunt zowel de huidige, per-dienst vorm als (defensief) de oude, vlakke vorm van vóór
+// deze tabel bestond (één instelling die toen voor alle diensten gold).
+function kolomVoorDienst(mapping, dienstId, veld) {
+  if (mapping && typeof mapping[veld] === "string") return mapping[veld]; // oude, vlakke vorm
+  return mapping?.[dienstId]?.[veld];
 }
 
 // Kolomnamen die schrijfTarievenNaarDataverse zelf al voor iets anders gebruikt — een per
@@ -1409,21 +1423,34 @@ async function haalDataverseStatus() {
 }
 
 // Leesbaar overzicht van de weggeschreven cr283_tarief-rijen (optioneel gefilterd op klant) —
-// gebruikt door api/dataverse-tarieven-overzicht. Leest de daadwerkelijk geconfigureerde
-// bedrag-/omschrijvingkolom (zie tariefKolomMapping) i.p.v. altijd de standaardkolommen, zodat
-// het overzicht ook klopt als die kolom-koppeling is aangepast.
+// gebruikt door api/dataverse-tarieven-overzicht.
+// Sinds de kolom-koppeling per dienst instelbaar is (zie kolomVoorDienst hierboven) kan een rij
+// in Dataverse in principe naar élk van de per-dienst ingestelde bedragkolommen geschreven zijn
+// — dit overzicht kent de dienst achter een al opgeslagen rij niet (alleen de naam), dus wordt
+// hier de vereniging van alle ingestelde bedragkolommen opgehaald en per rij de eerste kolom
+// gebruikt die daadwerkelijk een waarde bevat. Voor de omschrijving is dit niet nodig:
+// cr283_dienstomschrijving wordt bij het schrijven altijd gevuld (zie schrijfTarievenNaarDataverse
+// hieronder), ongeacht de ingestelde omschrijvingkolom per dienst.
 async function haalTarievenOverzicht({ klantId, kolomMapping } = {}) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   const token = await haalDataverseToken();
-  const mapping = kolomMapping || TARIEF_KOLOM_MAPPING_STANDAARD;
-  const bedragKolom = veiligeKolomNaam(mapping.bedragKolom, TARIEF_KOLOM_MAPPING_STANDAARD.bedragKolom);
-  const omschrijvingKolom = veiligeKolomNaam(mapping.omschrijvingKolom, TARIEF_KOLOM_MAPPING_STANDAARD.omschrijvingKolom);
+  const mapping = kolomMapping || {};
+  const ingesteldeBedragKolommen =
+    mapping && typeof mapping.bedragKolom === "string"
+      ? [mapping.bedragKolom] // oude, vlakke vorm
+      : Object.values(mapping || {}).map((rij) => rij?.bedragKolom);
+  const bedragKolommen = Array.from(
+    new Set(
+      [TARIEF_KOLOM_MAPPING_STANDAARD.bedragKolom, ...ingesteldeBedragKolommen]
+        .filter(Boolean)
+        .map((naam) => veiligeKolomNaam(naam, TARIEF_KOLOM_MAPPING_STANDAARD.bedragKolom))
+    )
+  );
   const setNaamTarief = await haalEntitySetNaam(`${DV_PREFIX}_tarief`, token);
   const kolommen = Array.from(
     new Set([
       `${DV_PREFIX}_dienstomschrijving`,
-      bedragKolom,
-      omschrijvingKolom,
+      ...bedragKolommen,
       `${DV_PREFIX}_eenheid`,
       `${DV_PREFIX}_aantal`,
       `${DV_PREFIX}_looptijdvan`,
@@ -1436,8 +1463,8 @@ async function haalTarievenOverzicht({ klantId, kolomMapping } = {}) {
   if (!res.ok) throw new Error(`Ophalen tarieven mislukt (${res.status}): ${await res.text()}`);
   const data = await res.json();
   return (data.value || []).map((rij) => ({
-    dienstomschrijving: rij[omschrijvingKolom] ?? rij[`${DV_PREFIX}_dienstomschrijving`] ?? "",
-    bedrag: rij[bedragKolom] ?? null,
+    dienstomschrijving: rij[`${DV_PREFIX}_dienstomschrijving`] || "",
+    bedrag: bedragKolommen.map((k) => rij[k]).find((w) => w !== null && w !== undefined) ?? null,
     eenheid: rij[`${DV_PREFIX}_eenheid`] || "",
     aantal: rij[`${DV_PREFIX}_aantal`] ?? null,
     looptijdvan: rij[`${DV_PREFIX}_looptijdvan`] || null,
@@ -1512,9 +1539,7 @@ async function schrijfTarievenNaarDataverse({ record, klant, documentUrl, datave
     return;
   }
 
-  const mapping = kolomMapping || TARIEF_KOLOM_MAPPING_STANDAARD;
-  const bedragKolom = veiligeKolomNaam(mapping.bedragKolom, TARIEF_KOLOM_MAPPING_STANDAARD.bedragKolom);
-  const omschrijvingKolom = veiligeKolomNaam(mapping.omschrijvingKolom, TARIEF_KOLOM_MAPPING_STANDAARD.omschrijvingKolom);
+  const mapping = kolomMapping || {};
 
   const datumIso = record.ondertekening?.op || new Date().toISOString();
   // Ingangsdatum van de tarieven: los instelbaar van de ondertekendatum (zie tariefIngangsdatum
@@ -1588,6 +1613,13 @@ async function schrijfTarievenNaarDataverse({ record, klant, documentUrl, datave
         : "Eenmalig";
     const categorieWaarde = await haalCategorieOptieWaarde(soortLabel, dataverseToken);
     const prijsWaarde = regel.opAanvraag || regel.opNacalculatie ? 0 : regel.prijs || 0;
+    // Kolom-koppeling is per dienst instelbaar (regel.id = de dienst-id, zie regelsVoorKlant in
+    // src/App.jsx) — zie kolomVoorDienst hierboven, met terugval op de standaardkolom.
+    const bedragKolom = veiligeKolomNaam(kolomVoorDienst(mapping, regel.id, "bedragKolom"), TARIEF_KOLOM_MAPPING_STANDAARD.bedragKolom);
+    const omschrijvingKolom = veiligeKolomNaam(
+      kolomVoorDienst(mapping, regel.id, "omschrijvingKolom"),
+      TARIEF_KOLOM_MAPPING_STANDAARD.omschrijvingKolom
+    );
     const tariefBody = {
       // cr283_dienstomschrijving is de naamgevende (primaire) kolom van de Tarief-tabel —
       // wordt daarom altijd gevuld, ongeacht de ingestelde omschrijvingKolom hierboven, zodat
@@ -1635,7 +1667,9 @@ async function verwerkOndertekeningNaSignering(record, contextLog) {
   // Bij meerdere klanten op één document: elk krijgt zijn eigen bestand + (evt.) taak.
   const taakInstellingen = await haalTaakInstellingen(soort);
   const tariefInstellingen = soort === "opdrachtbevestiging" ? await haalTariefInstellingen() : { actief: false };
-  const tariefKolomMapping = soort === "opdrachtbevestiging" ? await haalTariefKolomMapping() : TARIEF_KOLOM_MAPPING_STANDAARD;
+  // Alleen relevant voor opdrachtbevestiging (zie de "actief"-check verderop) — voor offerte
+  // wordt dit nooit daadwerkelijk gebruikt, vandaar de simpele lege map als placeholder.
+  const tariefKolomMapping = soort === "opdrachtbevestiging" ? await haalTariefKolomMapping() : {};
   const dataverseToken = await haalDataverseToken();
   const graphToken = await haalGraphToken();
 

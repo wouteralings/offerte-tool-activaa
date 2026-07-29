@@ -2571,32 +2571,62 @@ export default function OffertetoolApp() {
 
   // tariefKolomMapping: naar welke kolom van de cr283_tarief-tabel het bedrag en de
   // dienstomschrijving geschreven worden bij het wegschrijven naar Dataverse (zie
-  // schrijfTarievenNaarDataverse in api/_gedeeld/onboarding.js). Standaard de kolommen die
-  // api/dataverse-schema-setup zelf aanmaakt — hier alleen aanpassen als je bijv. liever een
-  // al bestaande, eigen kolom gebruikt in plaats van de automatisch aangemaakte.
-  const [tariefKolomMapping, setTariefKolomMapping] = useState(TARIEF_KOLOM_MAPPING_STANDAARD);
+  // schrijfTarievenNaarDataverse in api/_gedeeld/onboarding.js) — per dienst apart instelbaar,
+  // vorm { [dienstId]: { bedragKolom, omschrijvingKolom } }. Standaard (lege/ontbrekende rij)
+  // vallen de kolommen terug op TARIEF_KOLOM_MAPPING_STANDAARD, de kolommen die
+  // api/dataverse-schema-setup zelf aanmaakt.
+  const [tariefKolomMapping, setTariefKolomMapping] = useState({});
   const [tariefKolomMappingGeladen, setTariefKolomMappingGeladen] = useState(false);
 
+  // Wacht op catalogusGeladen: bij een eenmalige migratie van de oude, vlakke instelling (vóór
+  // deze tabel bestond — één kolom-koppeling voor alle diensten samen) is de huidige
+  // dienstenlijst nodig om voor elke bestaande dienst een eigen rij aan te maken met die oude
+  // waarde als startpunt. De tariefKolomMappingGeladen-guard zorgt dat dit, net als de andere
+  // laad-effecten hierboven, echt maar één keer draait — ook al staat dienstenCatalogus in de
+  // dependency-array (nodig voor de migratie-tak hierboven, exhaustive-deps).
   useEffect(() => {
+    if (!catalogusGeladen || tariefKolomMappingGeladen) return;
     let actief = true;
     (async () => {
       try {
         const waarde = await opslagGet("tarieven-kolom-mapping");
-        if (actief && waarde) setTariefKolomMapping({ ...TARIEF_KOLOM_MAPPING_STANDAARD, ...JSON.parse(waarde) });
+        if (actief && waarde) {
+          const ruw = JSON.parse(waarde);
+          const isOudeVlakkeVorm = typeof ruw?.bedragKolom === "string" || typeof ruw?.omschrijvingKolom === "string";
+          if (isOudeVlakkeVorm) {
+            const gemigreerd = {};
+            dienstenCatalogus.forEach((d) => {
+              gemigreerd[d.id] = { bedragKolom: ruw.bedragKolom || "", omschrijvingKolom: ruw.omschrijvingKolom || "" };
+            });
+            setTariefKolomMapping(gemigreerd);
+          } else {
+            setTariefKolomMapping(ruw || {});
+          }
+        }
       } catch (e) {
-        // nog niets ingesteld — standaardwaarden blijven staan
+        // nog niets ingesteld — lege mapping blijft staan (elke dienst valt terug op de standaardkolommen)
       }
       if (actief) setTariefKolomMappingGeladen(true);
     })();
     return () => {
       actief = false;
     };
-  }, []);
+  }, [catalogusGeladen, tariefKolomMappingGeladen, dienstenCatalogus]);
 
   useEffect(() => {
     if (!tariefKolomMappingGeladen) return;
     opslagSetDebounced("tarieven-kolom-mapping", JSON.stringify(tariefKolomMapping));
   }, [tariefKolomMapping, tariefKolomMappingGeladen]);
+
+  // Werkt de kolom-koppeling van één dienst bij (zie de tabel "Tarieven — kolom-koppeling in
+  // Dataverse" onder Instellingen) — de andere diensten en het niet-aangeraakte veld van
+  // dezelfde dienst blijven ongemoeid staan (dus leeg = valt terug op de standaardkolom).
+  function bijwerkTariefKolomVoorDienst(dienstId, veld, waarde) {
+    setTariefKolomMapping((prev) => ({
+      ...prev,
+      [dienstId]: { ...(prev[dienstId] || {}), [veld]: waarde },
+    }));
+  }
 
   // Verbindingsstatus-check (api/dataverse-status) en het bekijken van de daadwerkelijk
   // weggeschreven tarieven (api/dataverse-tarieven-overzicht) — beide puur op aanvraag (geen
@@ -4134,39 +4164,67 @@ export default function OffertetoolApp() {
             </div>
             <div className="ot-card" style={{ padding: 24 }}>
               <p style={{ fontSize: 12.5, color: "#5B6259", margin: "0 0 16px" }}>
-                Bepaalt naar welke kolom van de "Tarief"-tabel (cr283_tarief) het bedrag en de dienstomschrijving
-                worden geschreven. Staat standaard op de kolommen die het opzet-endpoint zelf aanmaakt — pas dit
-                alleen aan als je liever een andere, zelf beheerde kolom gebruikt.
+                Bepaalt per dienst naar welke kolom van de "Tarief"-tabel (cr283_tarief) het bedrag en de
+                dienstomschrijving worden geschreven. Elke dienst staat standaard op de kolommen die het
+                opzet-endpoint zelf aanmaakt (leeg laten = die standaardkolom) — pas dit per dienst alleen aan
+                als je liever een andere, zelf beheerde kolom gebruikt. Komt er een nieuwe dienst bij de
+                catalogus, dan verschijnt die hier automatisch als nieuwe regel.
               </p>
-              <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-                <div style={{ flex: "1 1 220px" }}>
-                  <label className="ot-label">Kolom voor bedrag</label>
-                  <input
-                    type="text"
-                    className="ot-input"
-                    value={tariefKolomMapping.bedragKolom}
-                    onChange={(e) => setTariefKolomMapping((prev) => ({ ...prev, bedragKolom: e.target.value }))}
-                    placeholder={TARIEF_KOLOM_MAPPING_STANDAARD.bedragKolom}
-                  />
-                </div>
-                <div style={{ flex: "1 1 220px" }}>
-                  <label className="ot-label">Kolom voor omschrijving dienst</label>
-                  <input
-                    type="text"
-                    className="ot-input"
-                    value={tariefKolomMapping.omschrijvingKolom}
-                    onChange={(e) => setTariefKolomMapping((prev) => ({ ...prev, omschrijvingKolom: e.target.value }))}
-                    placeholder={TARIEF_KOLOM_MAPPING_STANDAARD.omschrijvingKolom}
-                  />
-                </div>
-              </div>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: "#8A9089", borderBottom: "1px solid #E2E4DF" }}>Dienst</th>
+                    <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: "#8A9089", borderBottom: "1px solid #E2E4DF" }}>Kolom voor bedrag</th>
+                    <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: "#8A9089", borderBottom: "1px solid #E2E4DF" }}>Kolom voor omschrijving</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dienstenCatalogus.map((dienst) => {
+                    const rij = tariefKolomMapping[dienst.id] || {};
+                    const catNaam = categorieen.find((c) => c.id === dienst.categorie)?.naam;
+                    return (
+                      <tr key={dienst.id} style={{ borderBottom: "1px solid #F0EEE6" }}>
+                        <td style={{ padding: "8px 4px", verticalAlign: "top" }}>
+                          <div style={{ fontWeight: 600, fontSize: 13.5 }}>{dienst.naam}</div>
+                          {catNaam && <div style={{ fontSize: 11.5, color: "#8A9089" }}>{catNaam}</div>}
+                        </td>
+                        <td style={{ padding: "8px 4px", verticalAlign: "top" }}>
+                          <input
+                            type="text"
+                            className="ot-input"
+                            value={rij.bedragKolom || ""}
+                            onChange={(e) => bijwerkTariefKolomVoorDienst(dienst.id, "bedragKolom", e.target.value)}
+                            placeholder={TARIEF_KOLOM_MAPPING_STANDAARD.bedragKolom}
+                          />
+                        </td>
+                        <td style={{ padding: "8px 4px", verticalAlign: "top" }}>
+                          <input
+                            type="text"
+                            className="ot-input"
+                            value={rij.omschrijvingKolom || ""}
+                            onChange={(e) => bijwerkTariefKolomVoorDienst(dienst.id, "omschrijvingKolom", e.target.value)}
+                            placeholder={TARIEF_KOLOM_MAPPING_STANDAARD.omschrijvingKolom}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {dienstenCatalogus.length === 0 && (
+                    <tr>
+                      <td colSpan={3} style={{ padding: "10px 4px", fontSize: 12.5, color: "#8A9089" }}>
+                        Nog geen diensten in de catalogus.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
               <p style={{ fontSize: 12, color: "#8A9089", margin: "12px 0 0" }}>
                 Gebruik de logische (technische) kolomnaam uit Dataverse, bijv. "cr283_prijs" — niet de weergavenaam.
                 Let op: "cr283_dienstomschrijving" is ook de naamgevende kolom van de Tarief-tabel; deze wordt hoe dan
-                ook altijd gevuld (voor een leesbare recordnaam in Dataverse), ook als je hier een andere kolom kiest
-                — in dat geval krijgt die andere kolom de omschrijving er dan bovenop. Onbekende of foutief
-                overlappende kolomnamen worden bij het wegschrijven genegeerd en dan wordt stilzwijgend teruggevallen
-                op de standaardkolom.
+                ook altijd gevuld (voor een leesbare recordnaam in Dataverse), ook als je hier voor een dienst een
+                andere kolom kiest — in dat geval krijgt die andere kolom de omschrijving er dan bovenop. Onbekende
+                of foutief overlappende kolomnamen worden bij het wegschrijven genegeerd en dan wordt stilzwijgend
+                teruggevallen op de standaardkolom.
               </p>
             </div>
 
