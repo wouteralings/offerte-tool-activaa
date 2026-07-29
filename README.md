@@ -232,6 +232,77 @@ rechten óók rechten op Microsoft Graph nodig:
 Zonder deze stap blijft het ondertekenen zelf gewoon werken; alleen de SharePoint-upload en de
 taak worden dan overgeslagen (met een foutmelding in de logs).
 
+## Tarieven-registratie in Dataverse opzetten
+
+Bij het **ondertekenen van een opdrachtbevestiging** (niet bij offerte) kan de tool automatisch
+twee eigen Dataverse-tabellen bijhouden:
+
+- **Opdrachtbevestiging** (`cr283_opdrachtbevestiging`) — één rij per klant per ondertekende
+  opdrachtbevestiging, met een uniek, automatisch gegenereerd **kenmerk** (bijv. `OB-00001`),
+  de ondertekeningsdatum, het opdrachttype, een samengevoegde omschrijving van de gekozen
+  diensten ("wat ze afnemen"), het totaalbedrag, en — bij een herbevestiging/tariefswijziging —
+  een koppeling naar de vorige opdrachtbevestiging.
+- **Tarief** (`cr283_tarief`) — één rij per gekozen dienst op die opdrachtbevestiging, met prijs,
+  eenheid, aantal, categorie en een **looptijd (van / tot en met)**. Rechtstreeks gekoppeld aan
+  zowel de opdrachtbevestiging als de klant, zodat "welke tarieven zijn nu actief" rechtstreeks
+  op het klant-formulier te bekijken is (zie stap 3 hieronder).
+
+Bij een **herbevestiging/tariefswijziging** (gekozen via de kiezer op de Opdrachtbevestiging-stap
+in de tool: "Herbevestiging / tariefswijziging van eerdere opdrachtbevestiging") worden de nog
+openstaande tarieven van de vorige opdrachtbevestiging automatisch afgesloten (looptijd tot en
+met = de dag vóór de nieuwe looptijd begint) — er staan dus nooit twee "actieve" tarieven voor
+dezelfde dienst/klant tegelijk open.
+
+### Stap 1 — Tabellen eenmalig aanmaken
+
+De tool kan deze twee tabellen zelf aanmaken via de Dataverse Web API, met dezelfde
+app-registratie (`DYNAMICS_CLIENT_ID`) als de rest van de koppeling. Dat vereist tijdelijk een
+bredere bevoegdheid dan waarvoor die Application User tot nu toe is ingericht:
+
+1. Ga in de Power Platform admin center naar de omgeving → **S2S apps** / **Application users**,
+   zoek de Application User van deze tool op.
+2. Ken tijdelijk de systeemrol **"System Customizer"** toe (naast de bestaande rol) — dit is
+   nodig om nieuwe tabellen/kolommen/relaties aan te mogen maken.
+3. Roep, terwijl je bent ingelogd in de tool, het opzet-endpoint eenmalig aan:
+   ```
+   POST /api/dataverse-schema-setup?bevestig=ja
+   ```
+   Bijvoorbeeld met de browser-devtools (Console-tab, terwijl je op de site bent ingelogd):
+   ```js
+   fetch("/api/dataverse-schema-setup?bevestig=ja", {
+     method: "POST",
+     headers: { "X-Requested-With": "offertetool" },
+   }).then((r) => r.json()).then(console.log);
+   ```
+4. Dit is **veilig herhaalbaar** — elke stap controleert eerst of het onderdeel (tabel/kolom/
+   relatie) al bestaat voordat het wordt aangemaakt, en er wordt nooit iets verwijderd. Mislukt
+   een stap door ontbrekende rechten, dan meldt de respons dat duidelijk — gewoon de systeemrol
+   controleren en opnieuw aanroepen.
+5. Zet na afloop de systeemrol van de Application User weer terug naar de oorspronkelijke,
+   minimale rol — "System Customizer" was alleen nodig voor deze eenmalige opzet, niet voor het
+   dagelijkse wegschrijven van tarieven zelf (dat gebruikt alleen gewone lees/schrijfrechten op
+   de nieuwe tabellen, die de nieuwe rol niet meer hoeft te hebben).
+
+### Stap 2 — Schakelaar aanzetten
+
+Ga naar het **Instellingen**-scherm, sectie "Opdrachtbevestiging — tarieven naar Dataverse", en
+zet de schakelaar **"Tarieven wegschrijven bij ondertekening"** aan. Staat deze uit (standaard),
+dan gebeurt er niets — precies zoals bij de taak-instellingen hierboven.
+
+### Stap 3 — "Actieve tarieven" op het klant-formulier tonen
+
+De Metadata API maakt de tabellen/kolommen/relaties aan, maar **geen kant-en-klare weergave** op
+het Account-formulier zelf (formulier-lay-out aanpassen via de API is foutgevoelig en dus bewust
+overgeslagen). Voeg dit handmatig toe in de Power Apps-portal (make.powerapps.com):
+
+1. Open het Account-formulier (of de tabel "Account" → Formulieren) in de formulier-designer.
+2. Voeg een **subgrid** toe (gerelateerde tabel "Tarieven"), eventueel met een view/filter op
+   "Looptijd tot en met is leeg OF op/na vandaag" voor een echt "alleen actieve tarieven"-overzicht.
+3. Publiceer het formulier.
+
+Zonder deze stap zijn de tarieven gewoon te bekijken via de tabel "Tarief" zelf in de
+Power Apps-portal — alleen niet direct zichtbaar op het klant-formulier.
+
 ## Tekenlink per e-mail versturen (rechtstreeks, niet via je eigen mailprogramma)
 
 De knop **"Mail versturen"** op het offerte-eindscherm verstuurt de mail rechtstreeks via

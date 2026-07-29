@@ -1133,6 +1133,13 @@ export default function OffertetoolApp() {
   // Vanuit welke offerte (indien via de snelkoppeling op het Offerte-scherm) deze
   // opdrachtbevestiging is gestart — puur informatief, geen functionele koppeling.
   const [opdrachtbevestigingVanuitOfferteId, setOpdrachtbevestigingVanuitOfferteId] = useState(null);
+  // Is deze opdrachtbevestiging een herbevestiging/tariefswijziging van een eerdere,
+  // al ondertekende opdrachtbevestiging? Zo ja: het interne ID van die eerdere
+  // opdrachtbevestiging (zie de kiezer op de Opdrachtbevestiging-stap) — bij het
+  // ondertekenen wordt hiermee in Dataverse de vorige rij gekoppeld (cr283_herbevestigingvan)
+  // en worden de nog openstaande tarieven van die vorige rij afgesloten. Puur functioneel,
+  // wél in de snapshot bewaard (zie huidigeOpdrachtbevestigingSnapshot).
+  const [herbevestigingVanId, setHerbevestigingVanId] = useState(null);
   // Het gekozen opdrachttype (NV COS) voor de op dit moment "open" opdrachtbevestiging, en de
   // bijbehorende paragrafen — verplicht (alleen-lezen kopie van het beheerde standaardtype) en
   // optioneel (startpunt = de standaard-optionele paragrafen van dat type, per document vrij
@@ -1197,6 +1204,17 @@ export default function OffertetoolApp() {
       setOpdrachtbevestigingenLijstBezig(false);
     }
   }
+
+  // De lijst is verder alleen bedoeld voor het overzichtsscherm (lazy geladen via
+  // openOpdrachtbevestigingenOverzicht), maar de "Herbevestiging van eerdere
+  // opdrachtbevestiging"-kiezer op de Opdrachtbevestiging-stap heeft 'm ook nodig — hier dus
+  // ook (eenmalig, alleen als nog leeg) laden zodra die stap bereikt wordt.
+  useEffect(() => {
+    if (stap === "opdrachtbevestiging" && opdrachtbevestigingenLijst.length === 0 && !opdrachtbevestigingenLijstBezig && !opdrachtbevestigingenLijstFout) {
+      laadOpdrachtbevestigingenLijst();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stap]);
 
   function toggleOpdrachtbevestigingSelectie(id) {
     setOpdrachtbevestigingenSelectie((prev) => {
@@ -1284,6 +1302,10 @@ export default function OffertetoolApp() {
         naam: dienst.naam,
         tekst: opdrachtbevestigingDienstTeksten[dienst.id],
       })),
+      // Herbevestiging/tariefswijziging van een eerdere opdrachtbevestiging (zie toelichting
+      // bij herbevestigingVanId hierboven) — gebruikt bij ondertekenen om in Dataverse de
+      // vorige rij te koppelen en diens nog openstaande tarieven af te sluiten.
+      herbevestigingVanId,
     };
   }
 
@@ -1337,6 +1359,7 @@ export default function OffertetoolApp() {
       // Per-record aan/uit-status van de vrijwillige dienst-teksten herstellen (zie
       // toelichting bij huidigeOpdrachtbevestigingSnapshot hierboven).
       setOpdrachtbevestigingDienstTekstUit(snap.opdrachtbevestigingDienstTekstUit || {});
+      setHerbevestigingVanId(snap.herbevestigingVanId || null);
       setHuidigeOpdrachtbevestigingId(id);
       setHuidigeOpdrachtbevestigingStatus(record.status || OPDRACHTBEVESTIGING_STATUS_STANDAARD);
       setOpdrachtbevestigingMaker({ naam: record.aangemaaktDoor || "", email: record.aangemaaktDoorEmail || "" });
@@ -1413,6 +1436,7 @@ export default function OffertetoolApp() {
     setOpdrachtbevestigingParagrafen({ verplicht: [], optioneel: [] });
     setOpdrachtbevestigingVanuitOfferteId(null);
     setOpdrachtbevestigingDienstTekstUit({});
+    setHerbevestigingVanId(null);
   }
 
   function nieuweOpdrachtbevestiging() {
@@ -2385,6 +2409,34 @@ export default function OffertetoolApp() {
     if (!taakInstellingenOpdrachtbevestigingGeladen) return;
     opslagSetDebounced("taak-instellingen-opdrachtbevestiging", JSON.stringify(taakInstellingenOpdrachtbevestiging));
   }, [taakInstellingenOpdrachtbevestiging, taakInstellingenOpdrachtbevestigingGeladen]);
+
+  // tariefInstellingenOpdrachtbevestiging: schakelaar voor de tarieven-registratie in
+  // Dataverse (cr283_opdrachtbevestiging + cr283_tarief) bij het ondertekenen van een
+  // opdrachtbevestiging — zie schrijfTarievenNaarDataverse in api/_gedeeld/onboarding.js.
+  // Staat standaard uit totdat de tabellen zijn aangemaakt (zie api/dataverse-schema-setup).
+  const [tariefInstellingenOpdrachtbevestiging, setTariefInstellingenOpdrachtbevestiging] = useState({ actief: false });
+  const [tariefInstellingenOpdrachtbevestigingGeladen, setTariefInstellingenOpdrachtbevestigingGeladen] = useState(false);
+
+  useEffect(() => {
+    let actief = true;
+    (async () => {
+      try {
+        const waarde = await opslagGet("tarieven-instellingen-opdrachtbevestiging");
+        if (actief && waarde) setTariefInstellingenOpdrachtbevestiging({ actief: false, ...JSON.parse(waarde) });
+      } catch (e) {
+        // nog niets ingesteld — standaardwaarde (uit) blijft staan
+      }
+      if (actief) setTariefInstellingenOpdrachtbevestigingGeladen(true);
+    })();
+    return () => {
+      actief = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!tariefInstellingenOpdrachtbevestigingGeladen) return;
+    opslagSetDebounced("tarieven-instellingen-opdrachtbevestiging", JSON.stringify(tariefInstellingenOpdrachtbevestiging));
+  }, [tariefInstellingenOpdrachtbevestiging, tariefInstellingenOpdrachtbevestigingGeladen]);
 
   // webhookOpdrachtbevestiging: zelfde opzet als webhookAcceptatie (leeg = uitgeschakeld),
   // maar los in te stellen van de offerte-webhook hierboven.
@@ -3746,6 +3798,28 @@ export default function OffertetoolApp() {
                 Geen aparte instelling nodig: net als bij offerte wordt de getekende opdrachtbevestiging
                 automatisch geüpload naar de SharePoint-map uit het <code>cr283_sharepoint</code>-veld van de klant
                 in Dynamics — dezelfde koppeling die er al is, nu ook voor opdrachtbevestiging.
+              </p>
+            </div>
+
+            <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
+              <span>Opdrachtbevestiging — tarieven naar Dataverse</span>
+            </div>
+            <div className="ot-card" style={{ padding: 24 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13.5, fontWeight: 600, marginBottom: 16, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={!!tariefInstellingenOpdrachtbevestiging.actief}
+                  onChange={(e) => setTariefInstellingenOpdrachtbevestiging((prev) => ({ ...prev, actief: e.target.checked }))}
+                  style={{ width: 16, height: 16, accentColor: "#1C5D8C" }}
+                />
+                Tarieven wegschrijven bij ondertekening — {tariefInstellingenOpdrachtbevestiging.actief ? "aan" : "uit"}
+              </label>
+              <p style={{ fontSize: 12.5, color: "#5B6259", margin: 0 }}>
+                Schrijft bij een akkoord-ondertekening per klant een "Opdrachtbevestiging"-rij en per gekozen dienst
+                een "Tarief"-rij (met looptijd) weg naar Dataverse, met een eigen kenmerk per opdrachtbevestiging.
+                Staat standaard uit — zet dit pas aan nadat de tabellen zijn aangemaakt via het eenmalige
+                opzet-endpoint (zie README, sectie "Tarieven-registratie in Dataverse opzetten"), anders mislukt het
+                wegschrijven stil op de achtergrond (net als bij een niet-ingevuld SharePoint-veld).
               </p>
             </div>
 
@@ -6743,6 +6817,32 @@ export default function OffertetoolApp() {
                   <p style={{ fontSize: 12, color: "#8A9089", margin: "10px 0 0" }}>
                     Wisselen van type vervangt de verplichte paragrafen door de set die bij dat type hoort (zie
                     hieronder in de opdrachtbevestiging zelf) — al ingevulde optionele paragrafen blijven staan.
+                  </p>
+                </div>
+
+                <div className="ot-card" style={{ padding: 18, marginBottom: 22 }}>
+                  <label className="ot-label">Herbevestiging / tariefswijziging van eerdere opdrachtbevestiging (optioneel)</label>
+                  <select
+                    className="ot-input"
+                    value={herbevestigingVanId || ""}
+                    onChange={(e) => setHerbevestigingVanId(e.target.value || null)}
+                  >
+                    <option value="">Geen — dit is een nieuwe, losstaande opdrachtbevestiging</option>
+                    {opdrachtbevestigingenLijst
+                      .filter((o) => o.status === "geaccepteerd" && o.id !== huidigeOpdrachtbevestigingId)
+                      .sort((a, b) => new Date(b.gewijzigdOp) - new Date(a.gewijzigdOp))
+                      .map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {(o.klantNamen || []).join(", ") || "Onbekende klant"} — {o.opdrachttypeNaam || "geen type"} —{" "}
+                          {o.gewijzigdOp ? new Date(o.gewijzigdOp).toLocaleDateString("nl-NL") : ""}
+                        </option>
+                      ))}
+                  </select>
+                  <p style={{ fontSize: 12, color: "#8A9089", margin: "10px 0 0" }}>
+                    Kies hier de eerder ondertekende opdrachtbevestiging die deze vervangt/verlengt/wijzigt. Bij het
+                    ondertekenen wordt dit in Dataverse vastgelegd (kenmerk van de vorige koppelen) en worden de nog
+                    openstaande tarieven van die vorige opdrachtbevestiging automatisch afgesloten op de looptijd.
+                    {opdrachtbevestigingenLijstBezig && " (Lijst wordt geladen…)"}
                   </p>
                 </div>
 

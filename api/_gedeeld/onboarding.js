@@ -1132,6 +1132,207 @@ async function haalTaakInstellingen(soort) {
 }
 
 // ---------------------------------------------------------------------------
+// Tarieven-registratie in Dataverse (cr283_opdrachtbevestiging + cr283_tarief) — bij het
+// ondertekenen (akkoord) van een opdrachtbevestiging. Zie api/dataverse-schema-setup voor
+// het eenmalig aanmaken van deze tabellen, en het Offertetool-projectdocument voor de
+// volledige schema-toelichting. Staat standaard uit (zie TARIEVEN_INSTELLINGEN_STANDAARD)
+// totdat de tabellen zijn aangemaakt en de schakelaar in Instellingen is aangezet.
+// ---------------------------------------------------------------------------
+const DV_PREFIX = "cr283";
+const TARIEVEN_INSTELLINGEN_STANDAARD = { actief: false };
+
+async function haalTariefInstellingen() {
+  try {
+    const ruw = await haalInstellingWaarde("tarieven-instellingen-opdrachtbevestiging");
+    if (!ruw) return TARIEVEN_INSTELLINGEN_STANDAARD;
+    return { ...TARIEVEN_INSTELLINGEN_STANDAARD, ...JSON.parse(ruw) };
+  } catch (e) {
+    return TARIEVEN_INSTELLINGEN_STANDAARD;
+  }
+}
+
+// De OData-verzamelingsnaam (meervoud) van een tabel wordt door Dataverse zelf bepaald bij
+// aanmaken (zie api/dataverse-schema-setup) — i.p.v. die naam hier te gokken (Nederlandse
+// woorden pluraliseren niet altijd voorspelbaar), wordt 'm hier één keer per koude start
+// opgezocht via de metadata en daarna hergebruikt.
+const entitySetNaamCache = {};
+async function haalEntitySetNaam(logicalName, dataverseToken) {
+  if (entitySetNaamCache[logicalName]) return entitySetNaamCache[logicalName];
+  const resource = process.env.DYNAMICS_RESOURCE_URL;
+  const res = await fetch(`${resource}/api/data/v9.2/EntityDefinitions(LogicalName='${logicalName}')?$select=EntitySetName`, {
+    headers: { Authorization: `Bearer ${dataverseToken}`, Accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(`Kon tabelnaam niet opzoeken voor ${logicalName} (${res.status}): ${await res.text()}`);
+  const data = await res.json();
+  entitySetNaamCache[logicalName] = data.EntitySetName;
+  return data.EntitySetName;
+}
+
+// De optiewaarden van cr283_categorie (Eenmalig/Doorlopend) worden door Dataverse zelf
+// toegekend bij aanmaken (zie api/dataverse-schema-setup — bewust geen vaste getallen
+// meegegeven), dus ook deze worden hier opgezocht op basis van het label i.p.v. gegokt.
+const categorieOptieCache = {};
+async function haalCategorieOptieWaarde(labelTekst, dataverseToken) {
+  if (Object.keys(categorieOptieCache).length === 0) {
+    const resource = process.env.DYNAMICS_RESOURCE_URL;
+    const res = await fetch(
+      `${resource}/api/data/v9.2/EntityDefinitions(LogicalName='${DV_PREFIX}_tarief')/Attributes(LogicalName='${DV_PREFIX}_categorie')/Microsoft.Dynamics.CRM.PicklistAttributeMetadata?$select=LogicalName&$expand=OptionSet`,
+      { headers: { Authorization: `Bearer ${dataverseToken}`, Accept: "application/json" } }
+    );
+    if (!res.ok) throw new Error(`Kon opties voor cr283_categorie niet opzoeken (${res.status}): ${await res.text()}`);
+    const data = await res.json();
+    (data.OptionSet?.Options || []).forEach((optie) => {
+      const tekst = optie.Label?.UserLocalizedLabel?.Label || optie.Label?.LocalizedLabels?.[0]?.Label;
+      if (tekst) categorieOptieCache[tekst] = optie.Value;
+    });
+  }
+  return categorieOptieCache[labelTekst];
+}
+
+// Zoekt eerdere cr283_opdrachtbevestiging-rijen op voor dezelfde combinatie van app-record-ID
+// (ons eigen interne opdrachtbevestiging-ID, zie cr283_appid) en klant — gebruikt bij een
+// herbevestiging/tariefswijziging (record.data.herbevestigingVanId) om (a) de vorige rij te
+// vinden voor de cr283_herbevestigingvan-koppeling en (b) de nog openstaande tarieven van die
+// vorige rij af te sluiten.
+async function vindOpdrachtbevestigingRijen(appId, klantId, dataverseToken) {
+  const resource = process.env.DYNAMICS_RESOURCE_URL;
+  const setNaam = await haalEntitySetNaam(`${DV_PREFIX}_opdrachtbevestiging`, dataverseToken);
+  const filter = `${DV_PREFIX}_appid eq '${appId}' and _${DV_PREFIX}_klant_value eq ${klantId}`;
+  const res = await fetch(
+    `${resource}/api/data/v9.2/${setNaam}?$select=${DV_PREFIX}_opdrachtbevestigingid,createdon&$filter=${encodeURIComponent(filter)}&$orderby=createdon desc`,
+    { headers: { Authorization: `Bearer ${dataverseToken}`, Accept: "application/json" } }
+  );
+  if (!res.ok) throw new Error(`Opzoeken vorige opdrachtbevestiging(en) mislukt (${res.status}): ${await res.text()}`);
+  const data = await res.json();
+  return data.value || [];
+}
+
+// Sluit alle nog openstaande tarieven (cr283_looptijdtotenmet nog leeg) van een eerdere
+// opdrachtbevestiging-rij af op de dag vóór de nieuwe looptijd begint — zodat er nooit twee
+// "actieve" tarieven voor dezelfde dienst/klant tegelijk open blijven staan na een
+// herbevestiging/tariefswijziging.
+async function sluitOpenTarievenAf(vorigeOpdrachtbevestigingId, nieuweLooptijdVanIso, dataverseToken) {
+  const resource = process.env.DYNAMICS_RESOURCE_URL;
+  const setNaamTarief = await haalEntitySetNaam(`${DV_PREFIX}_tarief`, dataverseToken);
+  const filter = `_${DV_PREFIX}_opdrachtbevestiging_value eq ${vorigeOpdrachtbevestigingId} and ${DV_PREFIX}_looptijdtotenmet eq null`;
+  const res = await fetch(
+    `${resource}/api/data/v9.2/${setNaamTarief}?$select=${DV_PREFIX}_tariefid&$filter=${encodeURIComponent(filter)}`,
+    { headers: { Authorization: `Bearer ${dataverseToken}`, Accept: "application/json" } }
+  );
+  if (!res.ok) throw new Error(`Opzoeken open tarieven mislukt (${res.status}): ${await res.text()}`);
+  const data = await res.json();
+  const eindeVorigeLooptijd = new Date(nieuweLooptijdVanIso);
+  eindeVorigeLooptijd.setDate(eindeVorigeLooptijd.getDate() - 1);
+  const eindeIso = eindeVorigeLooptijd.toISOString();
+  for (const rij of data.value || []) {
+    const id = rij[`${DV_PREFIX}_tariefid`];
+    const patchRes = await fetch(`${resource}/api/data/v9.2/${setNaamTarief}(${id})`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${dataverseToken}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "If-Match": "*",
+      },
+      body: JSON.stringify({ [`${DV_PREFIX}_looptijdtotenmet`]: eindeIso }),
+    });
+    if (!patchRes.ok) {
+      // Best-effort: één tarief dat niet afgesloten kan worden mag de rest van de
+      // verwerking niet blokkeren — wordt alleen gelogd door de aanroeper.
+      throw new Error(`Afsluiten vorig tarief ${id} mislukt (${patchRes.status}): ${await patchRes.text()}`);
+    }
+  }
+}
+
+// Maakt één cr283_opdrachtbevestiging-rij (voor deze specifieke klant) en daaronder één
+// cr283_tarief-rij per gekozen dienst aan. Geeft niets terug; fouten worden door de
+// aanroeper (verwerkOndertekeningNaSignering) afgevangen en alleen gelogd, per klant.
+async function schrijfTarievenNaarDataverse({ record, klant, documentUrl, dataverseToken, contextLog }) {
+  const resource = process.env.DYNAMICS_RESOURCE_URL;
+  const data = record.data || {};
+  const regels = (data.regelsPerKlant || {})[klant.id] || [];
+  if (regels.length === 0) {
+    contextLog(`Klant ${klant.naam}: geen dienstregels, tarieven-registratie overgeslagen.`);
+    return;
+  }
+
+  const datumIso = record.ondertekening?.op || new Date().toISOString();
+  const setNaamOB = await haalEntitySetNaam(`${DV_PREFIX}_opdrachtbevestiging`, dataverseToken);
+  const setNaamTarief = await haalEntitySetNaam(`${DV_PREFIX}_tarief`, dataverseToken);
+
+  // Herbevestiging/tariefswijziging: vorige rij opzoeken (voor de koppeling én om de nog
+  // openstaande tarieven daarvan af te sluiten). Best-effort — wordt niet gevonden of gaat
+  // dit mis, dan wordt de nieuwe opdrachtbevestiging alsnog gewoon aangemaakt, zonder koppeling.
+  let vorigeOpdrachtbevestigingId = null;
+  if (data.herbevestigingVanId) {
+    try {
+      const vorigeRijen = await vindOpdrachtbevestigingRijen(data.herbevestigingVanId, klant.id, dataverseToken);
+      if (vorigeRijen.length > 0) {
+        vorigeOpdrachtbevestigingId = vorigeRijen[0][`${DV_PREFIX}_opdrachtbevestigingid`];
+        await sluitOpenTarievenAf(vorigeOpdrachtbevestigingId, datumIso, dataverseToken);
+      } else {
+        contextLog(`Klant ${klant.naam}: herbevestiging ingesteld, maar geen eerdere Dataverse-rij gevonden voor dit app-ID.`);
+      }
+    } catch (e) {
+      contextLog(`Klant ${klant.naam}: afsluiten vorige tarieven mislukt: ${e.message}`);
+    }
+  }
+
+  const obBody = {
+    [`${DV_PREFIX}_datum`]: datumIso,
+    [`${DV_PREFIX}_opdrachttype`]: data.opdrachttypeNaam || record.opdrachttypeNaam || "",
+    [`${DV_PREFIX}_omschrijving`]: regels.map((r) => r.naam).join(", "),
+    [`${DV_PREFIX}_totaalbedrag`]: regels.reduce((som, r) => som + (r.subtotaal || 0), 0),
+    [`${DV_PREFIX}_appid`]: record.id,
+    [`${DV_PREFIX}_documenturl`]: documentUrl || null,
+    [`${DV_PREFIX}_klant@odata.bind`]: `/accounts(${klant.id})`,
+  };
+  if (vorigeOpdrachtbevestigingId) {
+    obBody[`${DV_PREFIX}_herbevestigingvan@odata.bind`] = `/${setNaamOB}(${vorigeOpdrachtbevestigingId})`;
+  }
+
+  const resOb = await fetch(`${resource}/api/data/v9.2/${setNaamOB}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${dataverseToken}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify(obBody),
+  });
+  if (!resOb.ok) throw new Error(`Aanmaken opdrachtbevestiging-rij mislukt (${resOb.status}): ${await resOb.text()}`);
+  const obRecord = await resOb.json();
+  const obId = obRecord[`${DV_PREFIX}_opdrachtbevestigingid`];
+  const kenmerk = obRecord[`${DV_PREFIX}_kenmerk`];
+
+  for (const regel of regels) {
+    const categorieWaarde = await haalCategorieOptieWaarde(regel.categorie === "doorlopend" ? "Doorlopend" : "Eenmalig", dataverseToken);
+    const tariefBody = {
+      [`${DV_PREFIX}_dienstomschrijving`]: regel.naam,
+      [`${DV_PREFIX}_prijs`]: regel.opAanvraag || regel.opNacalculatie ? 0 : regel.prijs || 0,
+      [`${DV_PREFIX}_eenheid`]: regel.eenheid || "",
+      // aantal × factor: de werkelijke afgenomen hoeveelheid (zie regelsVoorKlant in
+      // src/App.jsx — subtotaal wordt op dezelfde manier berekend).
+      [`${DV_PREFIX}_aantal`]: (regel.aantal || 1) * (regel.factor || 1),
+      [`${DV_PREFIX}_looptijdvan`]: datumIso,
+      [`${DV_PREFIX}_opdrachtbevestiging@odata.bind`]: `/${setNaamOB}(${obId})`,
+      [`${DV_PREFIX}_klant@odata.bind`]: `/accounts(${klant.id})`,
+    };
+    if (categorieWaarde !== undefined) tariefBody[`${DV_PREFIX}_categorie`] = categorieWaarde;
+
+    const resTarief = await fetch(`${resource}/api/data/v9.2/${setNaamTarief}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${dataverseToken}`, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(tariefBody),
+    });
+    if (!resTarief.ok) throw new Error(`Aanmaken tarief-rij "${regel.naam}" mislukt (${resTarief.status}): ${await resTarief.text()}`);
+  }
+
+  contextLog(`Klant ${klant.naam}: ${regels.length} tarief(regel)(s) weggeschreven naar Dataverse (kenmerk ${kenmerk || obId}).`);
+}
+
+// ---------------------------------------------------------------------------
 // Orkestratie: wordt aangeroepen ná een succesvolle ondertekening (akkoord), voor
 // zowel offerte als opdrachtbevestiging (onderscheiden via record.soort — ontbreekt
 // dat veld, dan gaat het om een offerte, voor compatibiliteit met bestaande records).
@@ -1148,6 +1349,7 @@ async function verwerkOndertekeningNaSignering(record, contextLog) {
   }
   // Bij meerdere klanten op één document: elk krijgt zijn eigen bestand + (evt.) taak.
   const taakInstellingen = await haalTaakInstellingen(soort);
+  const tariefInstellingen = soort === "opdrachtbevestiging" ? await haalTariefInstellingen() : { actief: false };
   const dataverseToken = await haalDataverseToken();
   const graphToken = await haalGraphToken();
 
@@ -1161,46 +1363,57 @@ async function verwerkOndertekeningNaSignering(record, contextLog) {
   const taakActief = !!taakInstellingen.actief;
 
   for (const klant of klanten) {
+    let documentUrl = null;
     try {
       const account = await haalAccountGegevens(klant.id, dataverseToken);
       const sharepointUrl = account.cr283_sharepoint;
       if (!sharepointUrl) {
         contextLog(`Klant ${klant.naam}: geen cr283_sharepoint ingevuld, upload overgeslagen.`);
-        continue;
-      }
-
-      const basisNaam = `${documentLabel} - ${klantnaamVoorBestand(klant.naam)} - ${datumVoorBestand}`;
-      const documentUrl = await uploadNaarSharePoint({
-        sharepointUrl,
-        bestandsnaam: `${basisNaam}.pdf`,
-        bytes: documentPdfBytes,
-        contentType: "application/pdf",
-        graphToken,
-      });
-      await uploadNaarSharePoint({
-        sharepointUrl,
-        bestandsnaam: `${basisNaam} - logbestand.pdf`,
-        bytes: logPdfBytes,
-        contentType: "application/pdf",
-        graphToken,
-      });
-
-      if (taakActief) {
-        const managerId = account.cr283_Manager?.systemuserid || null;
-        await maakOnboardingTaak({
-          accountId: klant.id,
-          managerId,
-          bestandsUrl: documentUrl,
-          dataverseToken,
-          onderwerp: taakInstellingen.onderwerp,
-          categorie: taakInstellingen.categorie,
-        });
-        contextLog(`Klant ${klant.naam}: PDF + logbestand geüpload, taak aangemaakt.`);
       } else {
-        contextLog(`Klant ${klant.naam}: PDF + logbestand geüpload (taak aanmaken staat uit).`);
+        const basisNaam = `${documentLabel} - ${klantnaamVoorBestand(klant.naam)} - ${datumVoorBestand}`;
+        documentUrl = await uploadNaarSharePoint({
+          sharepointUrl,
+          bestandsnaam: `${basisNaam}.pdf`,
+          bytes: documentPdfBytes,
+          contentType: "application/pdf",
+          graphToken,
+        });
+        await uploadNaarSharePoint({
+          sharepointUrl,
+          bestandsnaam: `${basisNaam} - logbestand.pdf`,
+          bytes: logPdfBytes,
+          contentType: "application/pdf",
+          graphToken,
+        });
+
+        if (taakActief) {
+          const managerId = account.cr283_Manager?.systemuserid || null;
+          await maakOnboardingTaak({
+            accountId: klant.id,
+            managerId,
+            bestandsUrl: documentUrl,
+            dataverseToken,
+            onderwerp: taakInstellingen.onderwerp,
+            categorie: taakInstellingen.categorie,
+          });
+          contextLog(`Klant ${klant.naam}: PDF + logbestand geüpload, taak aangemaakt.`);
+        } else {
+          contextLog(`Klant ${klant.naam}: PDF + logbestand geüpload (taak aanmaken staat uit).`);
+        }
       }
     } catch (e) {
-      contextLog(`Klant ${klant.naam}: onboarding-verwerking mislukt: ${e.message}`);
+      contextLog(`Klant ${klant.naam}: onboarding-verwerking (SharePoint/taak) mislukt: ${e.message}`);
+    }
+
+    // Tarieven-registratie staat los van de SharePoint-koppeling hierboven — een klant
+    // zonder cr283_sharepoint mag de prijsregistratie niet mislopen. Eigen try/catch, zodat
+    // dit ene onderdeel de rest van de verwerking (of andere klanten) nooit blokkeert.
+    if (soort === "opdrachtbevestiging" && tariefInstellingen.actief) {
+      try {
+        await schrijfTarievenNaarDataverse({ record, klant, documentUrl, dataverseToken, contextLog });
+      } catch (e) {
+        contextLog(`Klant ${klant.naam}: tarieven-registratie in Dataverse mislukt: ${e.message}`);
+      }
     }
   }
 }

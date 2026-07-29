@@ -65,6 +65,10 @@ const TOEGESTANE_SLEUTELS = new Set([
   "webhook-opdrachtbevestiging-acceptatie",
   "taak-instellingen-offerte",
   "taak-instellingen-opdrachtbevestiging",
+  // Tarieven-registratie in Dataverse (cr283_opdrachtbevestiging + cr283_tarief) bij
+  // ondertekening van een opdrachtbevestiging — zie api/dataverse-schema-setup en
+  // schrijfTarievenNaarDataverse in api/_gedeeld/onboarding.js. Staat standaard uit.
+  "tarieven-instellingen-opdrachtbevestiging",
   "mailtekst-opdrachtbevestiging",
   "inleiding-opdrachtbevestiging",
   // Opdrachtbevestiging heeft alleen een algemene toelichting — géén klantspecifieke/per-dienst
