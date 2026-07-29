@@ -1139,6 +1139,19 @@ export default function OffertetoolApp() {
   // aan te passen/aan te vullen/te verwijderen).
   const [gekozenOpdrachttypeId, setGekozenOpdrachttypeId] = useState(null);
   const [opdrachtbevestigingParagrafen, setOpdrachtbevestigingParagrafen] = useState({ verplicht: [], optioneel: [] });
+  // Welke dienst-teksten (zie opdrachtbevestigingDienstTeksten hierboven) voor DEZE
+  // opdrachtbevestiging zijn uitgezet — vorm: { [dienstId]: true }. Ontbreekt een dienst-ID
+  // hier, dan telt de tekst gewoon mee (standaard aan); alleen expliciet uitgezette diensten
+  // staan hierin. Puur per-record, niet los bewaard.
+  const [opdrachtbevestigingDienstTekstUit, setOpdrachtbevestigingDienstTekstUit] = useState({});
+  function toggleOpdrachtbevestigingDienstTekst(dienstId) {
+    setOpdrachtbevestigingDienstTekstUit((prev) => {
+      const next = { ...prev };
+      if (next[dienstId]) delete next[dienstId];
+      else next[dienstId] = true;
+      return next;
+    });
+  }
 
   // Mail-opstellen voor opdrachtbevestiging — zelfde opzet als mailStatus/mailConcepten/
   // mailConceptOpenSleutel/mailCcExtra bij offerte, maar in een eigen "ob"-namespace. Een
@@ -1259,6 +1272,18 @@ export default function OffertetoolApp() {
       // hierboven) en de eigen extra cc voor opdrachtbevestiging-mails.
       mailAdressen,
       obMailCcExtra,
+      // Vrijwillige dienst-teksten (zie opdrachtbevestigingDienstTeksten hierboven): de
+      // aan/uit-status bewaren we per-record voor als deze opdrachtbevestiging weer geopend
+      // wordt, en de daadwerkelijke, op dit moment geldende teksten bevriezen we hier ook nog
+      // eens los — zodat een later gewijzigde of verwijderde standaardtekst niet met
+      // terugwerkende kracht een al opgeslagen/verstuurde opdrachtbevestiging verandert
+      // (zelfde principe als bij regelsPerKlant/roadmap hierboven).
+      opdrachtbevestigingDienstTekstUit,
+      dienstTeksten: dienstTekstenActief.map(({ dienst }) => ({
+        id: dienst.id,
+        naam: dienst.naam,
+        tekst: opdrachtbevestigingDienstTeksten[dienst.id],
+      })),
     };
   }
 
@@ -1309,6 +1334,9 @@ export default function OffertetoolApp() {
       // huidigeOpdrachtbevestigingSnapshot hierboven.
       if (snap.mailAdressen) setMailAdressen(snap.mailAdressen);
       if (snap.obMailCcExtra) setObMailCcExtra(snap.obMailCcExtra);
+      // Per-record aan/uit-status van de vrijwillige dienst-teksten herstellen (zie
+      // toelichting bij huidigeOpdrachtbevestigingSnapshot hierboven).
+      setOpdrachtbevestigingDienstTekstUit(snap.opdrachtbevestigingDienstTekstUit || {});
       setHuidigeOpdrachtbevestigingId(id);
       setHuidigeOpdrachtbevestigingStatus(record.status || OPDRACHTBEVESTIGING_STATUS_STANDAARD);
       setOpdrachtbevestigingMaker({ naam: record.aangemaaktDoor || "", email: record.aangemaaktDoorEmail || "" });
@@ -1384,6 +1412,7 @@ export default function OffertetoolApp() {
     setGekozenOpdrachttypeId(null);
     setOpdrachtbevestigingParagrafen({ verplicht: [], optioneel: [] });
     setOpdrachtbevestigingVanuitOfferteId(null);
+    setOpdrachtbevestigingDienstTekstUit({});
   }
 
   function nieuweOpdrachtbevestiging() {
@@ -2267,6 +2296,41 @@ export default function OffertetoolApp() {
     opslagSetDebounced("opdrachtbevestiging-teksten", JSON.stringify(opdrachtbevestigingTeksten));
   }, [opdrachtbevestigingTeksten, opdrachtbevestigingTekstenGeladen]);
 
+  // opdrachtbevestigingDienstTeksten: per dienst-ID (uit de dienstencatalogus, dus los van
+  // opdrachttype) een vrijwillige standaardtekst voor de opdrachtbevestiging — vorm:
+  // { [dienstId]: tekst }. Zodra die dienst in een opdrachtbevestiging is gekozen, komt deze
+  // tekst automatisch in de bijlage terecht (net als de NV COS-paragrafen), maar je kan 'm per
+  // opdrachtbevestiging uitzetten via opdrachtbevestigingDienstTekstUit (zie huidige
+  // OpdrachtbevestigingSnapshot/openOpdrachtbevestiging) — dat is per-record, geen
+  // catalogusbrede aan/uit-schakelaar zoals bij "Aantallen gebruiken".
+  const [opdrachtbevestigingDienstTeksten, setOpdrachtbevestigingDienstTeksten] = useState({});
+  const [opdrachtbevestigingDienstTekstenGeladen, setOpdrachtbevestigingDienstTekstenGeladen] = useState(false);
+
+  useEffect(() => {
+    let actief = true;
+    (async () => {
+      try {
+        const waarde = await opslagGet("opdrachtbevestiging-dienst-teksten");
+        if (actief && waarde) setOpdrachtbevestigingDienstTeksten(JSON.parse(waarde));
+      } catch (e) {
+        // nog niets opgeslagen
+      }
+      if (actief) setOpdrachtbevestigingDienstTekstenGeladen(true);
+    })();
+    return () => {
+      actief = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!opdrachtbevestigingDienstTekstenGeladen) return;
+    opslagSetDebounced("opdrachtbevestiging-dienst-teksten", JSON.stringify(opdrachtbevestigingDienstTeksten));
+  }, [opdrachtbevestigingDienstTeksten, opdrachtbevestigingDienstTekstenGeladen]);
+
+  function bijwerkOpdrachtbevestigingDienstTekst(dienstId, tekst) {
+    setOpdrachtbevestigingDienstTeksten((prev) => ({ ...prev, [dienstId]: tekst }));
+  }
+
   // taakInstellingenOfferte: onderwerp/categorie van de taak die na ondertekening van een
   // offerte wordt aangemaakt — voorheen vast ("Onboarding klant" / 8009 Backoffice), nu
   // instelbaar. Staat altijd aan (geen aparte "actief"-schakelaar, ongewijzigd gedrag).
@@ -2439,6 +2503,23 @@ export default function OffertetoolApp() {
         factor: geselecteerd[dienst.id].factor || 1,
       }));
   }, [geselecteerd, dienstenCatalogus]);
+
+  // Welke gekozen diensten hebben een vrijwillige standaardtekst voor de opdrachtbevestiging
+  // (zie opdrachtbevestigingDienstTeksten) die (nog) niet per-record is uitgezet. Bepaalt wat
+  // er standaard in de bijlage van de opdrachtbevestiging komt te staan.
+  const dienstTekstenActief = useMemo(() => {
+    return geselecteerdeEntries.filter(
+      ({ dienst }) =>
+        (opdrachtbevestigingDienstTeksten[dienst.id] || "").trim() !== "" &&
+        !opdrachtbevestigingDienstTekstUit[dienst.id]
+    );
+  }, [geselecteerdeEntries, opdrachtbevestigingDienstTeksten, opdrachtbevestigingDienstTekstUit]);
+
+  // Alle gekozen diensten met een vrijwillige standaardtekst, ongeacht of die voor deze
+  // opdrachtbevestiging nu aan of uit staat — dit is de lijst die de checkbox-UI toont.
+  const dienstenMetOpdrachtbevestigingTekst = useMemo(() => {
+    return geselecteerdeEntries.filter(({ dienst }) => (opdrachtbevestigingDienstTeksten[dienst.id] || "").trim() !== "");
+  }, [geselecteerdeEntries, opdrachtbevestigingDienstTeksten]);
 
   function toggleDienstSelectie(dienst) {
     setGeselecteerd((prev) => {
@@ -4199,6 +4280,33 @@ export default function OffertetoolApp() {
                 )}
 
                 <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
+                  <span>Vrijwillige teksten per dienst</span>
+                </div>
+                <p style={{ fontSize: 12, color: "#8A9089", margin: "0 0 12px" }}>
+                  Los van de opdrachttypes hierboven: leg per dienst uit de dienstencatalogus een
+                  vrijwillige standaardtekst vast. Zodra die dienst in een opdrachtbevestiging is
+                  geselecteerd, komt deze tekst automatisch mee in de bijlage — degene die de
+                  opdrachtbevestiging opstelt kan 'm daar per keer nog uitzetten.
+                </p>
+                <div style={{ display: "grid", gap: 12, marginBottom: 10 }}>
+                  {dienstenCatalogus.length === 0 && (
+                    <p style={{ fontSize: 12.5, color: "#8A9089" }}>Nog geen diensten in de catalogus.</p>
+                  )}
+                  {dienstenCatalogus.map((dienst) => (
+                    <div key={dienst.id} className="ot-card" style={{ padding: 18 }}>
+                      <label className="ot-label">{dienst.naam}</label>
+                      <textarea
+                        className="ot-input"
+                        rows={3}
+                        placeholder="Vrijwillige standaardtekst voor deze dienst — leeg laten als er geen tekst nodig is…"
+                        value={opdrachtbevestigingDienstTeksten[dienst.id] || ""}
+                        onChange={(e) => bijwerkOpdrachtbevestigingDienstTekst(dienst.id, e.target.value)}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
                   <span>Tekenlink per e-mail</span>
                 </div>
                 <div className="ot-card" style={{ padding: 18 }}>
@@ -5912,6 +6020,37 @@ export default function OffertetoolApp() {
                 </div>
               </div>
 
+              {dienstenMetOpdrachtbevestigingTekst.length > 0 && (
+                <div>
+                  <div className="ot-cat-koptekst">
+                    <span>Diensten — opdrachtbevestiging</span>
+                  </div>
+                  <p style={{ fontSize: 12, color: "#8A9089", margin: "0 0 10px" }}>
+                    Deze vrijwillige teksten staan standaard aan omdat de bijbehorende dienst is
+                    gekozen. Vink uit als een tekst voor déze opdrachtbevestiging niet van
+                    toepassing is — de standaardtekst zelf pas je aan via "Opdrachtbevestiging-teksten
+                    beheren".
+                  </p>
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {dienstenMetOpdrachtbevestigingTekst.map(({ dienst }) => (
+                      <div key={dienst.id} className="ot-card" style={{ padding: 16 }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                          <input
+                            type="checkbox"
+                            checked={!opdrachtbevestigingDienstTekstUit[dienst.id]}
+                            onChange={() => toggleOpdrachtbevestigingDienstTekst(dienst.id)}
+                          />
+                          <span style={{ fontWeight: 600, fontSize: 13 }}>{dienst.naam}</span>
+                        </label>
+                        <p style={{ fontSize: 12.5, color: "#3A4038", margin: "8px 0 0", whiteSpace: "pre-wrap" }}>
+                          {opdrachtbevestigingDienstTeksten[dienst.id]}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {gekozenKlanten.length > 0 && (
                 <div>
                   <div className="ot-cat-koptekst">
@@ -6789,7 +6928,12 @@ export default function OffertetoolApp() {
                   // toelichting) niet meer los in de hoofdtekst, maar hier in de bijlage —
                   // eenmalig voor de hele batch, niet per klant herhaald.
                   const alleParagrafen = [...(opdrachtbevestigingParagrafen.verplicht || []), ...(opdrachtbevestigingParagrafen.optioneel || [])];
-                  if (alleParagrafen.length === 0 && algemeneToelichtingOpdrachtbevestiging.trim() === "") return null;
+                  if (
+                    alleParagrafen.length === 0 &&
+                    dienstTekstenActief.length === 0 &&
+                    algemeneToelichtingOpdrachtbevestiging.trim() === ""
+                  )
+                    return null;
                   return (
                     <div className="ot-card offerte-doc" style={{ padding: 40 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
@@ -6816,6 +6960,14 @@ export default function OffertetoolApp() {
                             </div>
                           </div>
                         )}
+                        {dienstTekstenActief.map(({ dienst }) => (
+                          <div key={dienst.id}>
+                            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>{dienst.naam}</div>
+                            <div style={{ fontSize: 13, color: "#3A4038", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                              {opdrachtbevestigingDienstTeksten[dienst.id]}
+                            </div>
+                          </div>
+                        ))}
                         {alleParagrafen.map((p) => (
                           <div key={p.id}>
                             <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>{p.titel}</div>

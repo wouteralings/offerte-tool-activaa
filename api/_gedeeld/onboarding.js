@@ -720,6 +720,9 @@ async function genereerOpdrachtbevestigingPdf(record) {
   const bijlageToelichtingen = data.bijlageToelichtingen || {};
   const roadmap = data.roadmap;
   const paragrafen = data.paragrafen || { verplicht: [], optioneel: [] };
+  // Vrijwillige, bevroren dienst-teksten (zie opdrachtbevestigingDienstTeksten in src/App.jsx) —
+  // al bepaald/bevroren op het moment van opslaan, dus hier gewoon één-op-één tonen.
+  const dienstTeksten = data.dienstTeksten || [];
   const opdrachttypeNaam = data.opdrachttypeNaam || record.opdrachttypeNaam || "";
   // Eigen inleidende tekst, los van afzender.inleiding (die is voor de offerte) — zie
   // opdrachtbevestigingInleiding in src/App.jsx.
@@ -935,7 +938,7 @@ async function genereerOpdrachtbevestigingPdf(record) {
   const eersteRegelsLijst = Object.values(regelsPerKlant)[0] || [];
   const heeftBijlageToelichting = eersteRegelsLijst.some((r) => (bijlageToelichtingen[r.id] || "").trim() !== "");
   const heeftParagrafen = (paragrafen.verplicht || []).length > 0 || (paragrafen.optioneel || []).length > 0;
-  if (algemeneToelichting.trim() !== "" || heeftBijlageToelichting || heeftParagrafen) {
+  if (algemeneToelichting.trim() !== "" || heeftBijlageToelichting || heeftParagrafen || dienstTeksten.length > 0) {
     s.nieuwePagina();
     const kopY = s.huidigeY();
     s.paragraaf("Bijlage — toelichting per onderdeel", {
@@ -955,6 +958,14 @@ async function genereerOpdrachtbevestigingPdf(record) {
       s.regel("Algemeen", { size: 11.5, font: bold, kleur: KLEUR.primair, ruimteNa: 16 });
       s.paragraaf(algemeneToelichting, { size: 10, kleur: KLEUR.secundair, ruimteNa: 11 });
       s.lijn({ ruimteNa: 15 });
+    }
+
+    if (dienstTeksten.length > 0) {
+      dienstTeksten.forEach((dt) => {
+        s.regel(dt.naam, { size: 11.5, font: bold, kleur: KLEUR.primair, ruimteNa: 16 });
+        s.paragraaf(dt.tekst, { size: 10, kleur: KLEUR.secundair, ruimteNa: 11 });
+        s.lijn({ ruimteNa: 15 });
+      });
     }
 
     if (heeftParagrafen) {

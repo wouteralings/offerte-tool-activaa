@@ -59,6 +59,9 @@ const TOEGESTANE_SLEUTELS = new Set([
   // horen — los van de gelijknamige offerte-instellingen hieronder.
   "opdrachttypes",
   "opdrachtbevestiging-teksten",
+  // Vrijwillige, per-dienst standaardtekst voor de opdrachtbevestiging (los van het
+  // opdrachttype/NV COS) — zie opdrachtbevestigingDienstTeksten in src/App.jsx.
+  "opdrachtbevestiging-dienst-teksten",
   "webhook-opdrachtbevestiging-acceptatie",
   "taak-instellingen-offerte",
   "taak-instellingen-opdrachtbevestiging",
