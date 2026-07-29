@@ -1255,6 +1255,10 @@ export default function OffertetoolApp() {
       // Eigen inleidende tekst, los van afzender.inleiding (offerte) — zie toelichting bij
       // opdrachtbevestigingInleiding hierboven.
       inleiding: opdrachtbevestigingInleiding,
+      // Aangepaste tekenlink-e-mailadressen (gedeeld met de offerte, zie huidigeOfferteSnapshot
+      // hierboven) en de eigen extra cc voor opdrachtbevestiging-mails.
+      mailAdressen,
+      obMailCcExtra,
     };
   }
 
@@ -1301,6 +1305,10 @@ export default function OffertetoolApp() {
       // opdrachtbevestiging, dus die worden hier niet hersteld.
       setAlgemeneToelichtingOpdrachtbevestiging(snap.algemeneToelichting || "");
       setOpdrachtbevestigingInleiding(snap.inleiding || OPDRACHTBEVESTIGING_INLEIDING_DEFAULT);
+      // Aangepaste tekenlink-e-mailadressen/cc herstellen — zie toelichting bij
+      // huidigeOpdrachtbevestigingSnapshot hierboven.
+      if (snap.mailAdressen) setMailAdressen(snap.mailAdressen);
+      if (snap.obMailCcExtra) setObMailCcExtra(snap.obMailCcExtra);
       setHuidigeOpdrachtbevestigingId(id);
       setHuidigeOpdrachtbevestigingStatus(record.status || OPDRACHTBEVESTIGING_STATUS_STANDAARD);
       setOpdrachtbevestigingMaker({ naam: record.aangemaaktDoor || "", email: record.aangemaaktDoorEmail || "" });
@@ -1695,6 +1703,11 @@ export default function OffertetoolApp() {
       algemeneVoorwaarden,
       roadmap: roadmapToevoegen ? roadmap : null,
       namens: { naam: huidigeGebruiker?.naam || "", email: huidigeGebruiker?.email || "" },
+      // Aangepaste tekenlink-e-mailadressen en extra cc — anders ging een handmatige correctie
+      // hiervan verloren zodra je wegnavigeert vóór het versturen (mailAdressen is gedeelde
+      // state met de opdrachtbevestiging, zie huidigeOpdrachtbevestigingSnapshot hieronder).
+      mailAdressen,
+      mailCcExtra,
     };
   }
 
@@ -1734,6 +1747,11 @@ export default function OffertetoolApp() {
       setBijlageToelichtingen(snap.bijlageToelichtingen || {});
       setKlantToelichtingen(snap.klantToelichtingen || {});
       setRoadmapToevoegen(!!snap.roadmapToevoegen);
+      // Aangepaste tekenlink-e-mailadressen/cc herstellen — zie toelichting bij
+      // huidigeOfferteSnapshot hierboven. Alleen overschrijven als er iets bewaard is, zodat
+      // een eventueel al ingetypte correctie in dit tabblad niet verloren gaat.
+      if (snap.mailAdressen) setMailAdressen(snap.mailAdressen);
+      if (snap.mailCcExtra) setMailCcExtra(snap.mailCcExtra);
       setHuidigeOfferteId(id);
       setHuidigeOfferteStatus(record.status || OFFERTE_STATUS_STANDAARD);
       setOfferteMaker({ naam: record.aangemaaktDoor || "", email: record.aangemaaktDoorEmail || "" });
@@ -2697,6 +2715,21 @@ export default function OffertetoolApp() {
           [soort]: (huidig[soort] || []).map((p) => (p.id === paragraafId ? { ...p, [veld]: waarde } : p)),
         },
       };
+    });
+  }
+  // Volgorde van paragrafen binnen verplicht/optioneel wijzigen — zelfde aanpak als
+  // verplaatsOpdrachttype hierboven. Deze volgorde bepaalt ook de volgorde waarin de
+  // paragrafen in de bijlage van de opdrachtbevestiging (preview + PDF) verschijnen.
+  function verplaatsStandaardParagraaf(typeId, soort, paragraafId, richting) {
+    setOpdrachtbevestigingTeksten((prev) => {
+      const huidig = prev[typeId] || { verplicht: [], optioneel: [] };
+      const lijst = huidig[soort] || [];
+      const idx = lijst.findIndex((p) => p.id === paragraafId);
+      const nieuweIdx = idx + richting;
+      if (idx === -1 || nieuweIdx < 0 || nieuweIdx >= lijst.length) return prev;
+      const nieuweLijst = [...lijst];
+      [nieuweLijst[idx], nieuweLijst[nieuweIdx]] = [nieuweLijst[nieuweIdx], nieuweLijst[idx]];
+      return { ...prev, [typeId]: { ...huidig, [soort]: nieuweLijst } };
     });
   }
 
@@ -4054,7 +4087,7 @@ export default function OffertetoolApp() {
                       {paragrafen.verplicht.length === 0 && (
                         <p style={{ fontSize: 12.5, color: "#8A9089" }}>Nog geen verplichte paragrafen voor dit type.</p>
                       )}
-                      {paragrafen.verplicht.map((p) => (
+                      {paragrafen.verplicht.map((p, idx) => (
                         <div key={p.id} className="ot-card" style={{ padding: 18 }}>
                           <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
                             <div style={{ flex: 1 }}>
@@ -4065,13 +4098,31 @@ export default function OffertetoolApp() {
                                 onChange={(e) => bijwerkStandaardParagraaf(actieveType.id, "verplicht", p.id, "titel", e.target.value)}
                               />
                             </div>
-                            <button
-                              className="ot-btn-ghost"
-                              style={{ alignSelf: "flex-end" }}
-                              onClick={() => verwijderStandaardParagraaf(actieveType.id, "verplicht", p.id)}
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            <div style={{ display: "flex", gap: 4, alignSelf: "flex-end" }}>
+                              <button
+                                className="ot-btn-ghost"
+                                disabled={idx === 0}
+                                onClick={() => verplaatsStandaardParagraaf(actieveType.id, "verplicht", p.id, -1)}
+                                title="Omhoog"
+                              >
+                                <ChevronUp size={14} />
+                              </button>
+                              <button
+                                className="ot-btn-ghost"
+                                disabled={idx === paragrafen.verplicht.length - 1}
+                                onClick={() => verplaatsStandaardParagraaf(actieveType.id, "verplicht", p.id, 1)}
+                                title="Omlaag"
+                              >
+                                <ChevronDown size={14} />
+                              </button>
+                              <button
+                                className="ot-btn-ghost"
+                                onClick={() => verwijderStandaardParagraaf(actieveType.id, "verplicht", p.id)}
+                                title="Verwijderen"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           </div>
                           <label className="ot-label">Standaardtekst (NV COS)</label>
                           <textarea
@@ -4096,7 +4147,7 @@ export default function OffertetoolApp() {
                       {paragrafen.optioneel.length === 0 && (
                         <p style={{ fontSize: 12.5, color: "#8A9089" }}>Nog geen optionele paragrafen voor dit type.</p>
                       )}
-                      {paragrafen.optioneel.map((p) => (
+                      {paragrafen.optioneel.map((p, idx) => (
                         <div key={p.id} className="ot-card" style={{ padding: 18 }}>
                           <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
                             <div style={{ flex: 1 }}>
@@ -4107,13 +4158,31 @@ export default function OffertetoolApp() {
                                 onChange={(e) => bijwerkStandaardParagraaf(actieveType.id, "optioneel", p.id, "titel", e.target.value)}
                               />
                             </div>
-                            <button
-                              className="ot-btn-ghost"
-                              style={{ alignSelf: "flex-end" }}
-                              onClick={() => verwijderStandaardParagraaf(actieveType.id, "optioneel", p.id)}
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            <div style={{ display: "flex", gap: 4, alignSelf: "flex-end" }}>
+                              <button
+                                className="ot-btn-ghost"
+                                disabled={idx === 0}
+                                onClick={() => verplaatsStandaardParagraaf(actieveType.id, "optioneel", p.id, -1)}
+                                title="Omhoog"
+                              >
+                                <ChevronUp size={14} />
+                              </button>
+                              <button
+                                className="ot-btn-ghost"
+                                disabled={idx === paragrafen.optioneel.length - 1}
+                                onClick={() => verplaatsStandaardParagraaf(actieveType.id, "optioneel", p.id, 1)}
+                                title="Omlaag"
+                              >
+                                <ChevronDown size={14} />
+                              </button>
+                              <button
+                                className="ot-btn-ghost"
+                                onClick={() => verwijderStandaardParagraaf(actieveType.id, "optioneel", p.id)}
+                                title="Verwijderen"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           </div>
                           <label className="ot-label">Standaardtekst</label>
                           <textarea
@@ -6739,6 +6808,14 @@ export default function OffertetoolApp() {
                         Deze toelichting geldt voor alle bovenstaande opdrachtbevestigingen.
                       </div>
                       <div style={{ display: "grid", gap: 18 }}>
+                        {algemeneToelichtingOpdrachtbevestiging.trim() !== "" && (
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>Algemeen</div>
+                            <div style={{ fontSize: 13, color: "#3A4038", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                              {algemeneToelichtingOpdrachtbevestiging}
+                            </div>
+                          </div>
+                        )}
                         {alleParagrafen.map((p) => (
                           <div key={p.id}>
                             <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>{p.titel}</div>
@@ -6751,14 +6828,6 @@ export default function OffertetoolApp() {
                             )}
                           </div>
                         ))}
-                        {algemeneToelichtingOpdrachtbevestiging.trim() !== "" && (
-                          <div>
-                            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>Algemeen</div>
-                            <div style={{ fontSize: 13, color: "#3A4038", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-                              {algemeneToelichtingOpdrachtbevestiging}
-                            </div>
-                          </div>
-                        )}
                       </div>
                     </div>
                   );

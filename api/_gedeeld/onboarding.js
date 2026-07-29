@@ -951,16 +951,17 @@ async function genereerOpdrachtbevestigingPdf(record) {
     if (logoHoogte3) s.setY(Math.min(s.huidigeY(), kopY + 4 - logoHoogte3 - 12));
     s.regel("Deze toelichting geldt voor alle bovenstaande opdrachtbevestigingen.", { size: 9.5, kleur: KLEUR.zwak, ruimteNa: 22 });
 
-    if (heeftParagrafen) {
-      tekenParagrafen(s, fonts, paragrafen);
-      s.lijn({ ruimteNa: 15 });
-    }
-
     if (algemeneToelichting.trim() !== "") {
       s.regel("Algemeen", { size: 11.5, font: bold, kleur: KLEUR.primair, ruimteNa: 16 });
       s.paragraaf(algemeneToelichting, { size: 10, kleur: KLEUR.secundair, ruimteNa: 11 });
       s.lijn({ ruimteNa: 15 });
     }
+
+    if (heeftParagrafen) {
+      tekenParagrafen(s, fonts, paragrafen);
+      s.lijn({ ruimteNa: 15 });
+    }
+
     eersteRegelsLijst
       .filter((r) => (bijlageToelichtingen[r.id] || "").trim() !== "")
       .forEach((r) => {
