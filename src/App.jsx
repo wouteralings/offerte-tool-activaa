@@ -1929,8 +1929,8 @@ export default function OffertetoolApp() {
 
   // Zelfde drie bijlage-teksten, maar dan een eigen, losse set voor opdrachtbevestiging — de
   // teksten die je bij de stap Bijlage voor offerte intypt, mogen niet meer in de
-  // opdrachtbevestiging verschijnen (en andersom). Bediend via de wisselknop bovenaan de stap
-  // Bijlage (bijlageDocumentType hieronder), net als bij de inleidende tekst hiervoor.
+  // opdrachtbevestiging verschijnen (en andersom). Beide sets staan gewoon onder elkaar op de
+  // stap Bijlage, net als bij de inleidende tekst hiervoor — geen wisselknop.
   const [bijlageToelichtingenOpdrachtbevestiging, setBijlageToelichtingenOpdrachtbevestiging] = useState({});
   const [algemeneToelichtingOpdrachtbevestiging, setAlgemeneToelichtingOpdrachtbevestiging] = useState("");
   const [klantToelichtingenOpdrachtbevestiging, setKlantToelichtingenOpdrachtbevestiging] = useState({});
@@ -1974,19 +1974,6 @@ export default function OffertetoolApp() {
     if (!bijlageOpdrachtbevestigingGeladen) return;
     opslagSetDebounced("bijlage-per-klant-opdrachtbevestiging", JSON.stringify(klantToelichtingenOpdrachtbevestiging));
   }, [klantToelichtingenOpdrachtbevestiging, bijlageOpdrachtbevestigingGeladen]);
-
-  // Bepaalt welke set (offerte of opdrachtbevestiging) je ziet/bewerkt bij de stap Bijlage —
-  // pure UI-keuze, hoeft niet bewaard te worden.
-  const [bijlageDocumentType, setBijlageDocumentType] = useState("offerte");
-  const bijlageIsOpdrachtbevestiging = bijlageDocumentType === "opdrachtbevestiging";
-  // "Huidige" bijlage-teksten voor de stap Bijlage — wijst naar de offerte- of
-  // opdrachtbevestiging-set, afhankelijk van de wisselknop hierboven.
-  const bijlageAlgemeenHuidig = bijlageIsOpdrachtbevestiging ? algemeneToelichtingOpdrachtbevestiging : algemeneToelichting;
-  const setBijlageAlgemeenHuidig = bijlageIsOpdrachtbevestiging ? setAlgemeneToelichtingOpdrachtbevestiging : setAlgemeneToelichting;
-  const bijlagePerKlantHuidig = bijlageIsOpdrachtbevestiging ? klantToelichtingenOpdrachtbevestiging : klantToelichtingen;
-  const setBijlagePerKlantHuidig = bijlageIsOpdrachtbevestiging ? setKlantToelichtingenOpdrachtbevestiging : setKlantToelichtingen;
-  const bijlagePerDienstHuidig = bijlageIsOpdrachtbevestiging ? bijlageToelichtingenOpdrachtbevestiging : bijlageToelichtingen;
-  const setBijlagePerDienstHuidig = bijlageIsOpdrachtbevestiging ? setBijlageToelichtingenOpdrachtbevestiging : setBijlageToelichtingen;
 
   // standaardTeksten: herbruikbare standaardteksten, net als de dienstencatalogus zelf te beheren
   const [standaardTeksten, setStandaardTeksten] = useState({
@@ -2848,15 +2835,12 @@ export default function OffertetoolApp() {
   // (algemeen + elk aangevinkt dienst-tekstblok) — hetzelfde als los op elk "Standaardtekst"
   // knopje klikken, maar dan in één keer. Overschrijft wat er al in die velden stond.
   function alleStandaardtekstenOvernemen() {
-    // Werkt op de set die op dit moment actief is bij de stap Bijlage (offerte of
-    // opdrachtbevestiging, zie bijlageDocumentType) — dezelfde standaardteksten-bibliotheek
-    // wordt voor beide documenten hergebruikt, maar de ingevulde tekst zelf blijft gescheiden.
-    const setAlgemeen = bijlageDocumentType === "opdrachtbevestiging" ? setAlgemeneToelichtingOpdrachtbevestiging : setAlgemeneToelichting;
-    const setPerDienst = bijlageDocumentType === "opdrachtbevestiging" ? setBijlageToelichtingenOpdrachtbevestiging : setBijlageToelichtingen;
+    // Vult alleen de offerte-teksten — de opdrachtbevestiging-teksten hebben hun eigen,
+    // los te bewerken velden verderop op de stap en worden hier niet aangeraakt.
     if (standaardTeksten.algemeen.trim() !== "") {
-      setAlgemeen(standaardTeksten.algemeen);
+      setAlgemeneToelichting(standaardTeksten.algemeen);
     }
-    setPerDienst((prev) => {
+    setBijlageToelichtingen((prev) => {
       const next = { ...prev };
       geselecteerdeEntries.forEach(({ dienst }) => {
         const standaard = standaardTeksten.perDienst[dienst.id];
@@ -5785,7 +5769,7 @@ export default function OffertetoolApp() {
         {stap === "bijlage" && (
           <StapWrapper
             titel="Toelichting per onderdeel"
-            toelichting="Pas hier de inleidende tekst aan (apart voor offerte en opdrachtbevestiging) en schrijf optioneel een algemene toelichting, iets klantspecifieks en/of een toelichting per dienst. Alles wordt bewaard en samengevoegd in één gezamenlijke bijlage na de offertes — de klantspecifieke tekst verschijnt op de offerte van díe klant zelf."
+            toelichting="Pas hier de inleidende tekst, een algemene toelichting, iets klantspecifieks en/of een toelichting per dienst aan — steeds apart voor offerte en opdrachtbevestiging, dus wat je bij het ene invult verschijnt niet bij het andere. Alles wordt bewaard en samengevoegd in één gezamenlijke bijlage na de offertes — de klantspecifieke tekst verschijnt op de offerte van díe klant zelf."
           >
             <div className="ot-cat-koptekst" style={{ marginTop: 0 }}>
               <span>Inleidende tekst</span>
@@ -5809,24 +5793,6 @@ export default function OffertetoolApp() {
                   onChange={(e) => setOpdrachtbevestigingInleiding(e.target.value)}
                 />
               </div>
-            </div>
-
-            <div className="ot-cat-koptekst">
-              <span>Toelichting voor</span>
-            </div>
-            <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-              <button
-                className={bijlageDocumentType === "offerte" ? "ot-pill actief" : "ot-pill"}
-                onClick={() => setBijlageDocumentType("offerte")}
-              >
-                Offerte
-              </button>
-              <button
-                className={bijlageDocumentType === "opdrachtbevestiging" ? "ot-pill actief" : "ot-pill"}
-                onClick={() => setBijlageDocumentType("opdrachtbevestiging")}
-              >
-                Opdrachtbevestiging
-              </button>
             </div>
 
             {(standaardTeksten.algemeen.trim() !== "" ||
@@ -5863,28 +5829,45 @@ export default function OffertetoolApp() {
               </label>
               <Milestone size={20} color={roadmapToevoegen ? "#1C5D8C" : "#B4B9AE"} />
             </div>
-            <div style={{ display: "grid", gap: 14 }}>
-              <div className="ot-card" style={{ padding: 16, borderColor: "#1C5D8C" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <label className="ot-label">Algemeen</label>
-                  {standaardTeksten.algemeen.trim() !== "" && (
-                    <button
-                      className="ot-btn-ghost"
-                      onClick={() => setBijlageAlgemeenHuidig(standaardTeksten.algemeen)}
-                      title="Standaardtekst gebruiken"
-                    >
-                      <RotateCcw size={12} />
-                      Standaardtekst
-                    </button>
-                  )}
+            <div style={{ display: "grid", gap: 20 }}>
+              <div>
+                <div className="ot-cat-koptekst" style={{ marginTop: 0 }}>
+                  <span>Algemeen</span>
                 </div>
-                <textarea
-                  className="ot-input"
-                  rows={4}
-                  placeholder="Algemene toelichting, niet gekoppeld aan een specifieke dienst…"
-                  value={bijlageAlgemeenHuidig}
-                  onChange={(e) => setBijlageAlgemeenHuidig(e.target.value)}
-                />
+                <div style={{ display: "grid", gap: 12 }}>
+                  <div className="ot-card" style={{ padding: 16, borderColor: "#1C5D8C" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <label className="ot-label">Offerte</label>
+                      {standaardTeksten.algemeen.trim() !== "" && (
+                        <button
+                          className="ot-btn-ghost"
+                          onClick={() => setAlgemeneToelichting(standaardTeksten.algemeen)}
+                          title="Standaardtekst gebruiken"
+                        >
+                          <RotateCcw size={12} />
+                          Standaardtekst
+                        </button>
+                      )}
+                    </div>
+                    <textarea
+                      className="ot-input"
+                      rows={4}
+                      placeholder="Algemene toelichting, niet gekoppeld aan een specifieke dienst…"
+                      value={algemeneToelichting}
+                      onChange={(e) => setAlgemeneToelichting(e.target.value)}
+                    />
+                  </div>
+                  <div className="ot-card" style={{ padding: 16, borderColor: "#1C5D8C" }}>
+                    <label className="ot-label">Opdrachtbevestiging</label>
+                    <textarea
+                      className="ot-input"
+                      rows={4}
+                      placeholder="Algemene toelichting, niet gekoppeld aan een specifieke dienst…"
+                      value={algemeneToelichtingOpdrachtbevestiging}
+                      onChange={(e) => setAlgemeneToelichtingOpdrachtbevestiging(e.target.value)}
+                    />
+                  </div>
+                </div>
               </div>
 
               {gekozenKlanten.length > 0 && (
@@ -5892,19 +5875,38 @@ export default function OffertetoolApp() {
                   <div className="ot-cat-koptekst">
                     <span>Klantspecifiek</span>
                   </div>
-                  <div style={{ display: "grid", gap: 12 }}>
+                  <div style={{ display: "grid", gap: 18 }}>
                     {gekozenKlanten.map((klant) => (
-                      <div key={klant.id} className="ot-card" style={{ padding: 16 }}>
-                        <label className="ot-label">{klant.naam}</label>
-                        <textarea
-                          className="ot-input"
-                          rows={3}
-                          placeholder={`Iets specifieks over ${klant.naam}…`}
-                          value={bijlagePerKlantHuidig[klant.id] || ""}
-                          onChange={(e) =>
-                            setBijlagePerKlantHuidig((prev) => ({ ...prev, [klant.id]: e.target.value }))
-                          }
-                        />
+                      <div key={klant.id}>
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: "#5B6259", marginBottom: 8 }}>
+                          {klant.naam}
+                        </div>
+                        <div style={{ display: "grid", gap: 12 }}>
+                          <div className="ot-card" style={{ padding: 16 }}>
+                            <label className="ot-label">Offerte</label>
+                            <textarea
+                              className="ot-input"
+                              rows={3}
+                              placeholder={`Iets specifieks over ${klant.naam}…`}
+                              value={klantToelichtingen[klant.id] || ""}
+                              onChange={(e) =>
+                                setKlantToelichtingen((prev) => ({ ...prev, [klant.id]: e.target.value }))
+                              }
+                            />
+                          </div>
+                          <div className="ot-card" style={{ padding: 16 }}>
+                            <label className="ot-label">Opdrachtbevestiging</label>
+                            <textarea
+                              className="ot-input"
+                              rows={3}
+                              placeholder={`Iets specifieks over ${klant.naam}…`}
+                              value={klantToelichtingenOpdrachtbevestiging[klant.id] || ""}
+                              onChange={(e) =>
+                                setKlantToelichtingenOpdrachtbevestiging((prev) => ({ ...prev, [klant.id]: e.target.value }))
+                              }
+                            />
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -5916,33 +5918,52 @@ export default function OffertetoolApp() {
                   <div className="ot-cat-koptekst">
                     <span>Diensten</span>
                   </div>
-                  <div style={{ display: "grid", gap: 12 }}>
+                  <div style={{ display: "grid", gap: 18 }}>
                     {geselecteerdeEntries.map(({ dienst }) => (
-                      <div key={dienst.id} className="ot-card" style={{ padding: 16 }}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                          <label className="ot-label">{dienst.naam}</label>
-                          {(standaardTeksten.perDienst[dienst.id] || "").trim() !== "" && (
-                            <button
-                              className="ot-btn-ghost"
-                              onClick={() =>
-                                setBijlagePerDienstHuidig((prev) => ({ ...prev, [dienst.id]: standaardTeksten.perDienst[dienst.id] }))
-                              }
-                              title="Standaardtekst gebruiken"
-                            >
-                              <RotateCcw size={12} />
-                              Standaardtekst
-                            </button>
-                          )}
+                      <div key={dienst.id}>
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: "#5B6259", marginBottom: 8 }}>
+                          {dienst.naam}
                         </div>
-                        <textarea
-                          className="ot-input"
-                          rows={3}
-                          placeholder={`Toelichting bij ${dienst.naam.toLowerCase()}…`}
-                          value={bijlagePerDienstHuidig[dienst.id] || ""}
-                          onChange={(e) =>
-                            setBijlagePerDienstHuidig((prev) => ({ ...prev, [dienst.id]: e.target.value }))
-                          }
-                        />
+                        <div style={{ display: "grid", gap: 12 }}>
+                          <div className="ot-card" style={{ padding: 16 }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                              <label className="ot-label">Offerte</label>
+                              {(standaardTeksten.perDienst[dienst.id] || "").trim() !== "" && (
+                                <button
+                                  className="ot-btn-ghost"
+                                  onClick={() =>
+                                    setBijlageToelichtingen((prev) => ({ ...prev, [dienst.id]: standaardTeksten.perDienst[dienst.id] }))
+                                  }
+                                  title="Standaardtekst gebruiken"
+                                >
+                                  <RotateCcw size={12} />
+                                  Standaardtekst
+                                </button>
+                              )}
+                            </div>
+                            <textarea
+                              className="ot-input"
+                              rows={3}
+                              placeholder={`Toelichting bij ${dienst.naam.toLowerCase()}…`}
+                              value={bijlageToelichtingen[dienst.id] || ""}
+                              onChange={(e) =>
+                                setBijlageToelichtingen((prev) => ({ ...prev, [dienst.id]: e.target.value }))
+                              }
+                            />
+                          </div>
+                          <div className="ot-card" style={{ padding: 16 }}>
+                            <label className="ot-label">Opdrachtbevestiging</label>
+                            <textarea
+                              className="ot-input"
+                              rows={3}
+                              placeholder={`Toelichting bij ${dienst.naam.toLowerCase()}…`}
+                              value={bijlageToelichtingenOpdrachtbevestiging[dienst.id] || ""}
+                              onChange={(e) =>
+                                setBijlageToelichtingenOpdrachtbevestiging((prev) => ({ ...prev, [dienst.id]: e.target.value }))
+                              }
+                            />
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
