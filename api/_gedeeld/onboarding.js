@@ -812,12 +812,6 @@ async function genereerOpdrachtbevestigingPdf(record) {
       s.setY(boxBovenY - boxHoogte - 15);
     }
 
-    // Verplichte + optionele paragrafen — de kern van de opdrachtbevestiging.
-    tekenParagrafen(s, fonts, paragrafen);
-    if ((paragrafen.verplicht || []).length || (paragrafen.optioneel || []).length) {
-      s.witruimte(4);
-    }
-
     // Dienstentabel.
     const xSubtotaal = rechterRand;
     const xPrijs = rechterRand - 95;
@@ -934,11 +928,14 @@ async function genereerOpdrachtbevestigingPdf(record) {
   }
 
   // ------------------------------------------------------------------
-  // Bijlage — toelichting per onderdeel — eigen pagina. Zelfde opzet als bij de offerte.
+  // Bijlage — toelichting per onderdeel — eigen pagina. Zelfde opzet als bij de offerte,
+  // aangevuld met de verplichte + optionele NV COS-paragrafen (die bij de opdrachtbevestiging
+  // niet meer los in de hoofdtekst staan, maar hier in de bijlage, eenmalig voor de hele batch).
   // ------------------------------------------------------------------
   const eersteRegelsLijst = Object.values(regelsPerKlant)[0] || [];
   const heeftBijlageToelichting = eersteRegelsLijst.some((r) => (bijlageToelichtingen[r.id] || "").trim() !== "");
-  if (algemeneToelichting.trim() !== "" || heeftBijlageToelichting) {
+  const heeftParagrafen = (paragrafen.verplicht || []).length > 0 || (paragrafen.optioneel || []).length > 0;
+  if (algemeneToelichting.trim() !== "" || heeftBijlageToelichting || heeftParagrafen) {
     s.nieuwePagina();
     const kopY = s.huidigeY();
     s.paragraaf("Bijlage — toelichting per onderdeel", {
@@ -953,6 +950,11 @@ async function genereerOpdrachtbevestigingPdf(record) {
     const logoHoogte3 = tekenLogoRechtsboven(s.huidigePagina(), logo, kopY + 4);
     if (logoHoogte3) s.setY(Math.min(s.huidigeY(), kopY + 4 - logoHoogte3 - 12));
     s.regel("Deze toelichting geldt voor alle bovenstaande opdrachtbevestigingen.", { size: 9.5, kleur: KLEUR.zwak, ruimteNa: 22 });
+
+    if (heeftParagrafen) {
+      tekenParagrafen(s, fonts, paragrafen);
+      s.lijn({ ruimteNa: 15 });
+    }
 
     if (algemeneToelichting.trim() !== "") {
       s.regel("Algemeen", { size: 11.5, font: bold, kleur: KLEUR.primair, ruimteNa: 16 });

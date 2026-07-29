@@ -6584,7 +6584,6 @@ export default function OffertetoolApp() {
                     .map((cat) => ({ cat, items: klantRegels.filter((r) => r.categorie === cat) }))
                     .filter((g) => g.items.length > 0);
                   const gekozenType = opdrachttypes.find((t) => t.id === gekozenOpdrachttypeId);
-                  const alleParagrafen = [...(opdrachtbevestigingParagrafen.verplicht || []), ...(opdrachtbevestigingParagrafen.optioneel || [])];
 
                   return (
                     <div
@@ -6644,23 +6643,6 @@ export default function OffertetoolApp() {
                       <p style={{ fontSize: 13.5, lineHeight: 1.6, color: "#3A4038", marginBottom: 24 }}>
                         {opdrachtbevestigingInleiding}
                       </p>
-
-                      {alleParagrafen.length > 0 && (
-                        <div style={{ marginBottom: 24, display: "grid", gap: 18 }}>
-                          {alleParagrafen.map((p) => (
-                            <div key={p.id}>
-                              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>{p.titel}</div>
-                              {p.tekst?.trim() ? (
-                                <div style={{ fontSize: 13.5, lineHeight: 1.6, color: "#3A4038", whiteSpace: "pre-wrap" }}>{p.tekst}</div>
-                              ) : (
-                                <div style={{ fontSize: 13.5, lineHeight: 1.6, color: "#8A9089", fontStyle: "italic" }}>
-                                  Nog geen tekst ingevuld voor dit type — vul dit in via "Opdrachtbevestiging-teksten beheren".
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
 
                       <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 20 }}>
                         <thead>
@@ -6733,28 +6715,54 @@ export default function OffertetoolApp() {
                   );
                 })}
 
-                {algemeneToelichtingOpdrachtbevestiging.trim() !== "" && (
-                  <div className="ot-card offerte-doc" style={{ padding: 40 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                      <div className="offertetool-serif" style={{ fontSize: 22, fontWeight: 600 }}>
-                        Bijlage — toelichting
+                {(() => {
+                  // Verplichte + optionele NV COS-paragrafen staan (net als de algemene
+                  // toelichting) niet meer los in de hoofdtekst, maar hier in de bijlage —
+                  // eenmalig voor de hele batch, niet per klant herhaald.
+                  const alleParagrafen = [...(opdrachtbevestigingParagrafen.verplicht || []), ...(opdrachtbevestigingParagrafen.optioneel || [])];
+                  if (alleParagrafen.length === 0 && algemeneToelichtingOpdrachtbevestiging.trim() === "") return null;
+                  return (
+                    <div className="ot-card offerte-doc" style={{ padding: 40 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                        <div className="offertetool-serif" style={{ fontSize: 22, fontWeight: 600 }}>
+                          Bijlage — toelichting per onderdeel
+                        </div>
+                        {logo && (
+                          <img
+                            src={logo}
+                            alt="Logo"
+                            style={{ maxWidth: 140, maxHeight: 56, objectFit: "contain", flexShrink: 0, marginLeft: 24 }}
+                          />
+                        )}
                       </div>
-                      {logo && (
-                        <img
-                          src={logo}
-                          alt="Logo"
-                          style={{ maxWidth: 140, maxHeight: 56, objectFit: "contain", flexShrink: 0, marginLeft: 24 }}
-                        />
-                      )}
+                      <div style={{ fontSize: 12, color: "#8A9089", marginBottom: 24 }}>
+                        Deze toelichting geldt voor alle bovenstaande opdrachtbevestigingen.
+                      </div>
+                      <div style={{ display: "grid", gap: 18 }}>
+                        {alleParagrafen.map((p) => (
+                          <div key={p.id}>
+                            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>{p.titel}</div>
+                            {p.tekst?.trim() ? (
+                              <div style={{ fontSize: 13.5, lineHeight: 1.6, color: "#3A4038", whiteSpace: "pre-wrap" }}>{p.tekst}</div>
+                            ) : (
+                              <div style={{ fontSize: 13.5, lineHeight: 1.6, color: "#8A9089", fontStyle: "italic" }}>
+                                Nog geen tekst ingevuld voor dit type — vul dit in via "Opdrachtbevestiging-teksten beheren".
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        {algemeneToelichtingOpdrachtbevestiging.trim() !== "" && (
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>Algemeen</div>
+                            <div style={{ fontSize: 13, color: "#3A4038", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                              {algemeneToelichtingOpdrachtbevestiging}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div style={{ fontSize: 12, color: "#8A9089", marginBottom: 24 }}>
-                      Deze toelichting geldt voor alle bovenstaande opdrachtbevestigingen.
-                    </div>
-                    <div style={{ fontSize: 13, color: "#3A4038", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-                      {algemeneToelichtingOpdrachtbevestiging}
-                    </div>
-                  </div>
-                )}
+                  );
+                })()}
                 </div>
 
                 {(() => {
