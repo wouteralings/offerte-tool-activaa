@@ -350,6 +350,14 @@ export function currency(n) {
   }).format(n);
 }
 
+// Toont "10 stroken × 12" wanneer er een factor > 1 is ingesteld (zie zetFactor/regelsVoorKlant),
+// anders gewoon "1 traject" zoals voorheen — zo blijft de weergave ongewijzigd voor diensten die
+// geen gebruik maken van de aantallen/factor-functie.
+export function formatteerAantal(aantal, eenheid, factor) {
+  const basis = `${aantal} ${eenheid || ""}`.trim();
+  return factor && factor !== 1 ? `${basis} × ${factor}` : basis;
+}
+
 export function datumTijd(iso) {
   if (!iso) return "—";
   try {
@@ -2382,7 +2390,13 @@ export default function OffertetoolApp() {
     // zelf bepaalt.
     return dienstenCatalogus
       .filter((dienst) => geselecteerd[dienst.id])
-      .map((dienst) => ({ dienst, aantal: geselecteerd[dienst.id].aantal || 1 }));
+      .map((dienst) => ({
+        dienst,
+        aantal: geselecteerd[dienst.id].aantal || 1,
+        // Losse vermenigvuldigingsfactor naast aantal (bv. 10 stroken per maand × factor 12
+        // maanden) — alleen relevant voor diensten met gebruikAantallen aan.
+        factor: geselecteerd[dienst.id].factor || 1,
+      }));
   }, [geselecteerd, dienstenCatalogus]);
 
   function toggleDienstSelectie(dienst) {
@@ -2391,7 +2405,7 @@ export default function OffertetoolApp() {
       if (next[dienst.id]) {
         delete next[dienst.id];
       } else {
-        next[dienst.id] = { aantal: dienst.standaardAantal || 1 };
+        next[dienst.id] = { aantal: dienst.standaardAantal || 1, factor: dienst.standaardFactor || 1 };
       }
       return next;
     });
@@ -2438,6 +2452,13 @@ export default function OffertetoolApp() {
     setGeselecteerd((prev) => ({
       ...prev,
       [dienstId]: { ...prev[dienstId], aantal: Math.max(1, aantal) },
+    }));
+  }
+
+  function zetFactor(dienstId, factor) {
+    setGeselecteerd((prev) => ({
+      ...prev,
+      [dienstId]: { ...prev[dienstId], factor: Math.max(1, factor) },
     }));
   }
 
@@ -2490,7 +2511,7 @@ export default function OffertetoolApp() {
   function regelsVoorKlant(klantId) {
     return geselecteerdeEntries
       .filter(({ dienst }) => !isUitgeschakeldVoorKlant(klantId, dienst.id))
-      .map(({ dienst, aantal }) => {
+      .map(({ dienst, aantal, factor }) => {
         const { prijs, opAanvraag, opNacalculatie, variant } = prijsVoor(klantId, dienst);
         return {
           id: dienst.id,
@@ -2498,10 +2519,13 @@ export default function OffertetoolApp() {
           eenheid: dienst.eenheid,
           categorie: dienst.categorie,
           aantal,
+          // Alleen relevant als de dienst "Aantallen gebruiken" heeft aanstaan; anders altijd 1
+          // (en dus onzichtbaar in de weergave — zie formatteerAantal hieronder).
+          factor,
           prijs,
           opAanvraag,
           opNacalculatie,
-          subtotaal: opAanvraag || opNacalculatie ? 0 : aantal * prijs,
+          subtotaal: opAanvraag || opNacalculatie ? 0 : aantal * factor * prijs,
         };
       });
   }
@@ -2517,7 +2541,9 @@ export default function OffertetoolApp() {
         categorie,
         naam: "Nieuwe dienst",
         eenheid: "stuk",
+        gebruikAantallen: true,
         standaardAantal: 1,
+        standaardFactor: 1,
         varianten: [{ id: nieuwId("v"), naam: "", prijs: 0 }],
       },
     ]);
@@ -3674,18 +3700,34 @@ export default function OffertetoolApp() {
                               onChange={(e) => bijwerkDienstVeld(dienst.id, "eenheid", e.target.value)}
                             />
                           </div>
-                          <div style={{ flex: 1 }}>
-                            <label className="ot-label">Standaard aantal (factor)</label>
-                            <input
-                              className="ot-input"
-                              type="number"
-                              min="1"
-                              value={dienst.standaardAantal || 1}
-                              onChange={(e) =>
-                                bijwerkDienstVeld(dienst.id, "standaardAantal", Math.max(1, Number(e.target.value) || 1))
-                              }
-                            />
-                          </div>
+                          {dienst.gebruikAantallen !== false && (
+                            <>
+                              <div style={{ flex: 1 }}>
+                                <label className="ot-label">Standaard aantal</label>
+                                <input
+                                  className="ot-input"
+                                  type="number"
+                                  min="1"
+                                  value={dienst.standaardAantal || 1}
+                                  onChange={(e) =>
+                                    bijwerkDienstVeld(dienst.id, "standaardAantal", Math.max(1, Number(e.target.value) || 1))
+                                  }
+                                />
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <label className="ot-label">Standaard factor</label>
+                                <input
+                                  className="ot-input"
+                                  type="number"
+                                  min="1"
+                                  value={dienst.standaardFactor || 1}
+                                  onChange={(e) =>
+                                    bijwerkDienstVeld(dienst.id, "standaardFactor", Math.max(1, Number(e.target.value) || 1))
+                                  }
+                                />
+                              </div>
+                            </>
+                          )}
                           <button
                             onClick={() => verwijderDienst(dienst.id)}
                             title="Dienst verwijderen"
@@ -3694,6 +3736,15 @@ export default function OffertetoolApp() {
                             <Trash2 size={15} />
                           </button>
                         </div>
+                        <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, marginBottom: 4, cursor: "pointer", fontSize: 12.5, color: "#5B6259" }}>
+                          <input
+                            type="checkbox"
+                            checked={dienst.gebruikAantallen !== false}
+                            onChange={(e) => bijwerkDienstVeld(dienst.id, "gebruikAantallen", e.target.checked)}
+                            style={{ width: 15, height: 15, accentColor: "#1C5D8C" }}
+                          />
+                          Aantallen gebruiken — laat aantal en factor zien bij het kiezen van deze dienst (bv. "10 stroken × 12")
+                        </label>
 
                         <table style={{ width: "100%", borderCollapse: "collapse" }}>
                           <thead>
@@ -5423,15 +5474,28 @@ export default function OffertetoolApp() {
                               </div>
                             </label>
 
-                            {actief && (
-                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                <button onClick={() => zetAantal(dienst.id, (info.aantal || 1) - 1)} style={stapKnopStyle}>
-                                  <Minus size={13} />
-                                </button>
-                                <span style={{ minWidth: 20, textAlign: "center", fontWeight: 700, fontSize: 14 }}>{info.aantal || 1}</span>
-                                <button onClick={() => zetAantal(dienst.id, (info.aantal || 1) + 1)} style={stapKnopStyle}>
-                                  <Plus size={13} />
-                                </button>
+                            {actief && dienst.gebruikAantallen !== false && (
+                              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <button onClick={() => zetAantal(dienst.id, (info.aantal || 1) - 1)} style={stapKnopStyle}>
+                                    <Minus size={13} />
+                                  </button>
+                                  <span style={{ minWidth: 20, textAlign: "center", fontWeight: 700, fontSize: 14 }}>{info.aantal || 1}</span>
+                                  <button onClick={() => zetAantal(dienst.id, (info.aantal || 1) + 1)} style={stapKnopStyle}>
+                                    <Plus size={13} />
+                                  </button>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                  <span style={{ fontSize: 11, color: "#8A9089" }}>× factor</span>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    className="ot-input"
+                                    style={{ width: 52, textAlign: "center", padding: "5px 6px" }}
+                                    value={info.factor || 1}
+                                    onChange={(e) => zetFactor(dienst.id, Math.max(1, Number(e.target.value) || 1))}
+                                  />
+                                </div>
                               </div>
                             )}
                           </div>
@@ -5518,14 +5582,14 @@ export default function OffertetoolApp() {
                     </tr>
                   </thead>
                   <tbody>
-                    {geselecteerdeEntries.map(({ dienst, aantal }) => {
+                    {geselecteerdeEntries.map(({ dienst, aantal, factor }) => {
                       const meerdereVarianten = dienst.varianten.length > 1;
                       return (
                         <tr key={dienst.id} style={{ borderBottom: "1px solid #E2E4DF" }}>
                           <td style={{ padding: "12px 16px", position: "sticky", left: 0, background: "#fff", verticalAlign: "top" }}>
                             <div style={{ fontWeight: 700, fontSize: 13.5 }}>{dienst.naam}</div>
                             <div style={{ fontSize: 11.5, color: "#8A9089", marginTop: 2 }}>
-                              {dienst.eenheid} · {aantal}×
+                              {dienst.eenheid} · {aantal}×{factor && factor !== 1 ? ` · factor ${factor}` : ""}
                             </div>
                           </td>
                           {gekozenKlanten.map((k) => {
@@ -5921,7 +5985,7 @@ export default function OffertetoolApp() {
                               <td style={{ padding: "10px 4px" }}>
                                 <div style={{ fontWeight: 600, fontSize: 13.5 }}>{r.naam}</div>
                               </td>
-                              <td style={{ padding: "10px 4px", textAlign: "right", fontSize: 13.5 }}>{r.aantal} {r.eenheid}</td>
+                              <td style={{ padding: "10px 4px", textAlign: "right", fontSize: 13.5 }}>{formatteerAantal(r.aantal, r.eenheid, r.factor)}</td>
                               <td style={{ padding: "10px 4px", textAlign: "right", fontSize: 13.5 }}>
                                 {r.opAanvraag ? "op aanvraag" : r.opNacalculatie ? "nacalculatie" : currency(r.prijs)}
                               </td>
@@ -6580,7 +6644,7 @@ export default function OffertetoolApp() {
                                   <td style={{ padding: "10px 4px" }}>
                                     <div style={{ fontWeight: 600, fontSize: 13.5 }}>{r.naam}</div>
                                   </td>
-                                  <td style={{ padding: "10px 4px", textAlign: "right", fontSize: 13.5 }}>{r.aantal} {r.eenheid}</td>
+                                  <td style={{ padding: "10px 4px", textAlign: "right", fontSize: 13.5 }}>{formatteerAantal(r.aantal, r.eenheid, r.factor)}</td>
                                   <td style={{ padding: "10px 4px", textAlign: "right", fontSize: 13.5 }}>
                                     {r.opAanvraag ? "op aanvraag" : r.opNacalculatie ? "nacalculatie" : currency(r.prijs)}
                                   </td>

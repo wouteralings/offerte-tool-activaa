@@ -499,7 +499,10 @@ async function genereerOffertePdf(record) {
         // van de aantal-tekst op déze regel (bijv. "12 maand" is breder dan
         // "1 traject") — een vast vrij te houden stuk was soms te smal,
         // waardoor de aantal-tekst over het einde van de dienstnaam heen viel.
-        const aantalTekst = `${r.aantal} ${r.eenheid || ""}`.trim();
+        // Toont "10 stroken × 12" als er een factor > 1 is gekozen (aantal, apart vermenigvuldigd
+        // met een factor — bv. 10 stroken per maand × 12 maanden), anders gewoon "1 traject" zoals
+        // voorheen. Zie zetFactor/regelsVoorKlant in src/App.jsx.
+        const aantalTekst = `${r.aantal} ${r.eenheid || ""}`.trim() + (r.factor && r.factor !== 1 ? ` × ${r.factor}` : "");
         const aantalBreedte = regular.widthOfTextAtSize(aantalTekst, 10.5);
         const naamBreedte = xAantal - MARGE - aantalBreedte - 24;
         const naamRegels = verdeelInRegels(r.naam, bold, 11, naamBreedte);
@@ -832,7 +835,10 @@ async function genereerOpdrachtbevestigingPdf(record) {
       s.nieuwePaginaIndienNodig(22);
       s.regel((CATEGORIE_LABELS_PDF[groep.cat] || groep.cat).toUpperCase(), { size: 9.5, font: bold, kleur: KLEUR.goud, ruimteNa: 16 });
       groep.items.forEach((r) => {
-        const aantalTekst = `${r.aantal} ${r.eenheid || ""}`.trim();
+        // Toont "10 stroken × 12" als er een factor > 1 is gekozen (aantal, apart vermenigvuldigd
+        // met een factor — bv. 10 stroken per maand × 12 maanden), anders gewoon "1 traject" zoals
+        // voorheen. Zie zetFactor/regelsVoorKlant in src/App.jsx.
+        const aantalTekst = `${r.aantal} ${r.eenheid || ""}`.trim() + (r.factor && r.factor !== 1 ? ` × ${r.factor}` : "");
         const aantalBreedte = regular.widthOfTextAtSize(aantalTekst, 10.5);
         const naamBreedte = xAantal - MARGE - aantalBreedte - 24;
         const naamRegels = verdeelInRegels(r.naam, bold, 11, naamBreedte);
