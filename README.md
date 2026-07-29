@@ -253,6 +253,23 @@ openstaande tarieven van de vorige opdrachtbevestiging automatisch afgesloten (l
 met = de dag vóór de nieuwe looptijd begint) — er staan dus nooit twee "actieve" tarieven voor
 dezelfde dienst/klant tegelijk open.
 
+Twee extra instelmogelijkheden, voor als je invloed wilt op waar en wanneer de tarieven precies
+terechtkomen:
+
+- **Kolom-koppeling** — in **Instellingen**, sectie "Tarieven — kolom-koppeling in Dataverse",
+  stel je in naar welke kolom van `cr283_tarief` het bedrag en de dienstomschrijving worden
+  geschreven. Staat standaard op `cr283_prijs` / `cr283_dienstomschrijving` (de kolommen die het
+  opzet-endpoint zelf aanmaakt) — handig als je liever een eigen, al bestaande kolom gebruikt.
+  `cr283_dienstomschrijving` is ook de naamgevende kolom van de Tarief-tabel en wordt daarom
+  hoe dan ook altijd gevuld; een onbekende of foutief overlappende kolomnaam wordt bij het
+  wegschrijven genegeerd, met stille terugval op de standaardkolom.
+- **Ingangsdatum tarieven** — op de Opdrachtbevestiging-stap zelf, bij de
+  herbevestiging-kiezer, kun je optioneel een "Ingangsdatum tarieven" invullen. Leeg = de
+  tarieven gaan in op de ondertekendatum (zoals voorheen). Handig als je vandaag een
+  tariefswijziging ondertekent die pas op een latere datum in moet gaan — de vorige, nog
+  openstaande tarieven worden dan afgesloten op de dag vóór die ingangsdatum, in plaats van
+  vóór de ondertekendatum.
+
 ### Stap 1 — Tabellen eenmalig aanmaken
 
 De tool kan deze twee tabellen zelf aanmaken via de Dataverse Web API, met dezelfde

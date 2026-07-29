@@ -1151,6 +1151,42 @@ async function haalTariefInstellingen() {
   }
 }
 
+// Naar welke kolom van cr283_tarief het bedrag en de dienstomschrijving geschreven worden —
+// standaard de kolommen die api/dataverse-schema-setup zelf aanmaakt, aan te passen via
+// Instellingen (zie tariefKolomMapping in src/App.jsx) als een andere kolom gewenst is.
+const TARIEF_KOLOM_MAPPING_STANDAARD = { bedragKolom: `${DV_PREFIX}_prijs`, omschrijvingKolom: `${DV_PREFIX}_dienstomschrijving` };
+
+async function haalTariefKolomMapping() {
+  try {
+    const ruw = await haalInstellingWaarde("tarieven-kolom-mapping");
+    if (!ruw) return TARIEF_KOLOM_MAPPING_STANDAARD;
+    return { ...TARIEF_KOLOM_MAPPING_STANDAARD, ...JSON.parse(ruw) };
+  } catch (e) {
+    return TARIEF_KOLOM_MAPPING_STANDAARD;
+  }
+}
+
+// Kolomnamen die schrijfTarievenNaarDataverse zelf al voor iets anders gebruikt — een per
+// ongeluk (of expres) hierop ingestelde bedrag-/omschrijvingkolom zou anders stilletjes een
+// ander veld overschrijven (bijv. de looptijd of de klant-koppeling).
+const GERESERVEERDE_TARIEF_KOLOMMEN = new Set(
+  ["eenheid", "aantal", "categorie", "looptijdvan", "looptijdtotenmet", "opdrachtbevestiging", "klant", "tariefid"].map(
+    (naam) => `${DV_PREFIX}_${naam}`
+  )
+);
+
+// Valideert een door de gebruiker ingestelde kolomnaam (zie Instellingen) — moet een geldige
+// Dataverse-logische-naam-vorm hebben en mag niet overlappen met een al elders gebruikte kolom.
+// Bij twijfel wordt stil teruggevallen op de meegegeven standaardwaarde, zodat een typefout in
+// Instellingen nooit een verkeerd veld in Dataverse overschrijft.
+function veiligeKolomNaam(ingesteldeNaam, standaard) {
+  if (!ingesteldeNaam) return standaard;
+  const naam = String(ingesteldeNaam).trim().toLowerCase();
+  if (!/^[a-z][a-z0-9_]{2,63}$/.test(naam)) return standaard;
+  if (GERESERVEERDE_TARIEF_KOLOMMEN.has(naam) && naam !== standaard) return standaard;
+  return naam;
+}
+
 // De OData-verzamelingsnaam (meervoud) van een tabel wordt door Dataverse zelf bepaald bij
 // aanmaken (zie api/dataverse-schema-setup) — i.p.v. die naam hier te gokken (Nederlandse
 // woorden pluraliseren niet altijd voorspelbaar), wordt 'm hier één keer per koude start
@@ -1247,7 +1283,7 @@ async function sluitOpenTarievenAf(vorigeOpdrachtbevestigingId, nieuweLooptijdVa
 // Maakt één cr283_opdrachtbevestiging-rij (voor deze specifieke klant) en daaronder één
 // cr283_tarief-rij per gekozen dienst aan. Geeft niets terug; fouten worden door de
 // aanroeper (verwerkOndertekeningNaSignering) afgevangen en alleen gelogd, per klant.
-async function schrijfTarievenNaarDataverse({ record, klant, documentUrl, dataverseToken, contextLog }) {
+async function schrijfTarievenNaarDataverse({ record, klant, documentUrl, dataverseToken, contextLog, kolomMapping }) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   const data = record.data || {};
   const regels = (data.regelsPerKlant || {})[klant.id] || [];
@@ -1256,7 +1292,16 @@ async function schrijfTarievenNaarDataverse({ record, klant, documentUrl, datave
     return;
   }
 
+  const mapping = kolomMapping || TARIEF_KOLOM_MAPPING_STANDAARD;
+  const bedragKolom = veiligeKolomNaam(mapping.bedragKolom, TARIEF_KOLOM_MAPPING_STANDAARD.bedragKolom);
+  const omschrijvingKolom = veiligeKolomNaam(mapping.omschrijvingKolom, TARIEF_KOLOM_MAPPING_STANDAARD.omschrijvingKolom);
+
   const datumIso = record.ondertekening?.op || new Date().toISOString();
+  // Ingangsdatum van de tarieven: los instelbaar van de ondertekendatum (zie tariefIngangsdatum
+  // in src/App.jsx) — leeg/ontbrekend = gewoon de ondertekendatum, zoals voorheen. Bepaalt zowel
+  // cr283_looptijdvan van de nieuwe tarieven als de dag waarop de vorige tarieven (bij een
+  // herbevestiging) worden afgesloten.
+  const looptijdVanIso = data.tariefIngangsdatum ? new Date(`${data.tariefIngangsdatum}T00:00:00`).toISOString() : datumIso;
   const setNaamOB = await haalEntitySetNaam(`${DV_PREFIX}_opdrachtbevestiging`, dataverseToken);
   const setNaamTarief = await haalEntitySetNaam(`${DV_PREFIX}_tarief`, dataverseToken);
 
@@ -1269,7 +1314,7 @@ async function schrijfTarievenNaarDataverse({ record, klant, documentUrl, datave
       const vorigeRijen = await vindOpdrachtbevestigingRijen(data.herbevestigingVanId, klant.id, dataverseToken);
       if (vorigeRijen.length > 0) {
         vorigeOpdrachtbevestigingId = vorigeRijen[0][`${DV_PREFIX}_opdrachtbevestigingid`];
-        await sluitOpenTarievenAf(vorigeOpdrachtbevestigingId, datumIso, dataverseToken);
+        await sluitOpenTarievenAf(vorigeOpdrachtbevestigingId, looptijdVanIso, dataverseToken);
       } else {
         contextLog(`Klant ${klant.naam}: herbevestiging ingesteld, maar geen eerdere Dataverse-rij gevonden voor dit app-ID.`);
       }
@@ -1308,17 +1353,22 @@ async function schrijfTarievenNaarDataverse({ record, klant, documentUrl, datave
 
   for (const regel of regels) {
     const categorieWaarde = await haalCategorieOptieWaarde(regel.categorie === "doorlopend" ? "Doorlopend" : "Eenmalig", dataverseToken);
+    const prijsWaarde = regel.opAanvraag || regel.opNacalculatie ? 0 : regel.prijs || 0;
     const tariefBody = {
+      // cr283_dienstomschrijving is de naamgevende (primaire) kolom van de Tarief-tabel —
+      // wordt daarom altijd gevuld, ongeacht de ingestelde omschrijvingKolom hierboven, zodat
+      // het record in Dataverse altijd een leesbare naam heeft.
       [`${DV_PREFIX}_dienstomschrijving`]: regel.naam,
-      [`${DV_PREFIX}_prijs`]: regel.opAanvraag || regel.opNacalculatie ? 0 : regel.prijs || 0,
       [`${DV_PREFIX}_eenheid`]: regel.eenheid || "",
       // aantal × factor: de werkelijke afgenomen hoeveelheid (zie regelsVoorKlant in
       // src/App.jsx — subtotaal wordt op dezelfde manier berekend).
       [`${DV_PREFIX}_aantal`]: (regel.aantal || 1) * (regel.factor || 1),
-      [`${DV_PREFIX}_looptijdvan`]: datumIso,
+      [`${DV_PREFIX}_looptijdvan`]: looptijdVanIso,
       [`${DV_PREFIX}_opdrachtbevestiging@odata.bind`]: `/${setNaamOB}(${obId})`,
       [`${DV_PREFIX}_klant@odata.bind`]: `/accounts(${klant.id})`,
     };
+    tariefBody[bedragKolom] = prijsWaarde;
+    if (omschrijvingKolom !== `${DV_PREFIX}_dienstomschrijving`) tariefBody[omschrijvingKolom] = regel.naam;
     if (categorieWaarde !== undefined) tariefBody[`${DV_PREFIX}_categorie`] = categorieWaarde;
 
     const resTarief = await fetch(`${resource}/api/data/v9.2/${setNaamTarief}`, {
@@ -1350,6 +1400,7 @@ async function verwerkOndertekeningNaSignering(record, contextLog) {
   // Bij meerdere klanten op één document: elk krijgt zijn eigen bestand + (evt.) taak.
   const taakInstellingen = await haalTaakInstellingen(soort);
   const tariefInstellingen = soort === "opdrachtbevestiging" ? await haalTariefInstellingen() : { actief: false };
+  const tariefKolomMapping = soort === "opdrachtbevestiging" ? await haalTariefKolomMapping() : TARIEF_KOLOM_MAPPING_STANDAARD;
   const dataverseToken = await haalDataverseToken();
   const graphToken = await haalGraphToken();
 
@@ -1410,7 +1461,7 @@ async function verwerkOndertekeningNaSignering(record, contextLog) {
     // dit ene onderdeel de rest van de verwerking (of andere klanten) nooit blokkeert.
     if (soort === "opdrachtbevestiging" && tariefInstellingen.actief) {
       try {
-        await schrijfTarievenNaarDataverse({ record, klant, documentUrl, dataverseToken, contextLog });
+        await schrijfTarievenNaarDataverse({ record, klant, documentUrl, dataverseToken, contextLog, kolomMapping: tariefKolomMapping });
       } catch (e) {
         contextLog(`Klant ${klant.naam}: tarieven-registratie in Dataverse mislukt: ${e.message}`);
       }

@@ -107,6 +107,10 @@ const OFFERTE_STATUS_STANDAARD = "verzonden";
 // daadwerkelijk is verstuurd (zie verstuurMailConceptOpdrachtbevestiging), niet al bij
 // het opslaan/afdrukken. Daarna is de status net als bij offerte handmatig te wijzigen.
 const OPDRACHTBEVESTIGING_STATUS_STANDAARD = "in_bewerking";
+// Standaard kolom-koppeling voor het wegschrijven van tarieven naar Dataverse (zie
+// tariefKolomMapping hieronder in de component) — dit zijn de kolomnamen die
+// api/dataverse-schema-setup zelf aanmaakt in de cr283_tarief-tabel.
+const TARIEF_KOLOM_MAPPING_STANDAARD = { bedragKolom: "cr283_prijs", omschrijvingKolom: "cr283_dienstomschrijving" };
 export const OFFERTE_STATUSSEN = [
   { key: "in_bewerking", label: "In bewerking", kleur: "#5B6259", achtergrond: "#EEF0EC" },
   { key: "verzonden", label: "Verzonden", kleur: "#1C5D8C", achtergrond: "#EAF2F8" },
@@ -1140,6 +1144,12 @@ export default function OffertetoolApp() {
   // en worden de nog openstaande tarieven van die vorige rij afgesloten. Puur functioneel,
   // wél in de snapshot bewaard (zie huidigeOpdrachtbevestigingSnapshot).
   const [herbevestigingVanId, setHerbevestigingVanId] = useState(null);
+  // Optionele ingangsdatum voor de tarieven van deze opdrachtbevestiging (YYYY-MM-DD) — los van
+  // de daadwerkelijke ondertekendatum. Leeg = ingangsdatum wordt de ondertekendatum (zoals
+  // voorheen). Handig bij een herbevestiging/tariefswijziging die je vandaag ondertekent maar
+  // pas op een latere datum in laat gaan: bepaalt zowel cr283_looptijdvan van de nieuwe
+  // tarieven als de dag waarop de oude tarieven worden afgesloten (altijd één dag eerder).
+  const [tariefIngangsdatum, setTariefIngangsdatum] = useState("");
   // Het gekozen opdrachttype (NV COS) voor de op dit moment "open" opdrachtbevestiging, en de
   // bijbehorende paragrafen — verplicht (alleen-lezen kopie van het beheerde standaardtype) en
   // optioneel (startpunt = de standaard-optionele paragrafen van dat type, per document vrij
@@ -1306,6 +1316,9 @@ export default function OffertetoolApp() {
       // bij herbevestigingVanId hierboven) — gebruikt bij ondertekenen om in Dataverse de
       // vorige rij te koppelen en diens nog openstaande tarieven af te sluiten.
       herbevestigingVanId,
+      // Optionele ingangsdatum voor de tarieven (zie toelichting bij tariefIngangsdatum
+      // hierboven) — leeg = ingangsdatum wordt de ondertekendatum.
+      tariefIngangsdatum,
     };
   }
 
@@ -1360,6 +1373,7 @@ export default function OffertetoolApp() {
       // toelichting bij huidigeOpdrachtbevestigingSnapshot hierboven).
       setOpdrachtbevestigingDienstTekstUit(snap.opdrachtbevestigingDienstTekstUit || {});
       setHerbevestigingVanId(snap.herbevestigingVanId || null);
+      setTariefIngangsdatum(snap.tariefIngangsdatum || "");
       setHuidigeOpdrachtbevestigingId(id);
       setHuidigeOpdrachtbevestigingStatus(record.status || OPDRACHTBEVESTIGING_STATUS_STANDAARD);
       setOpdrachtbevestigingMaker({ naam: record.aangemaaktDoor || "", email: record.aangemaaktDoorEmail || "" });
@@ -1437,6 +1451,7 @@ export default function OffertetoolApp() {
     setOpdrachtbevestigingVanuitOfferteId(null);
     setOpdrachtbevestigingDienstTekstUit({});
     setHerbevestigingVanId(null);
+    setTariefIngangsdatum("");
   }
 
   function nieuweOpdrachtbevestiging() {
@@ -2437,6 +2452,35 @@ export default function OffertetoolApp() {
     if (!tariefInstellingenOpdrachtbevestigingGeladen) return;
     opslagSetDebounced("tarieven-instellingen-opdrachtbevestiging", JSON.stringify(tariefInstellingenOpdrachtbevestiging));
   }, [tariefInstellingenOpdrachtbevestiging, tariefInstellingenOpdrachtbevestigingGeladen]);
+
+  // tariefKolomMapping: naar welke kolom van de cr283_tarief-tabel het bedrag en de
+  // dienstomschrijving geschreven worden bij het wegschrijven naar Dataverse (zie
+  // schrijfTarievenNaarDataverse in api/_gedeeld/onboarding.js). Standaard de kolommen die
+  // api/dataverse-schema-setup zelf aanmaakt — hier alleen aanpassen als je bijv. liever een
+  // al bestaande, eigen kolom gebruikt in plaats van de automatisch aangemaakte.
+  const [tariefKolomMapping, setTariefKolomMapping] = useState(TARIEF_KOLOM_MAPPING_STANDAARD);
+  const [tariefKolomMappingGeladen, setTariefKolomMappingGeladen] = useState(false);
+
+  useEffect(() => {
+    let actief = true;
+    (async () => {
+      try {
+        const waarde = await opslagGet("tarieven-kolom-mapping");
+        if (actief && waarde) setTariefKolomMapping({ ...TARIEF_KOLOM_MAPPING_STANDAARD, ...JSON.parse(waarde) });
+      } catch (e) {
+        // nog niets ingesteld — standaardwaarden blijven staan
+      }
+      if (actief) setTariefKolomMappingGeladen(true);
+    })();
+    return () => {
+      actief = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!tariefKolomMappingGeladen) return;
+    opslagSetDebounced("tarieven-kolom-mapping", JSON.stringify(tariefKolomMapping));
+  }, [tariefKolomMapping, tariefKolomMappingGeladen]);
 
   // webhookOpdrachtbevestiging: zelfde opzet als webhookAcceptatie (leeg = uitgeschakeld),
   // maar los in te stellen van de offerte-webhook hierboven.
@@ -3820,6 +3864,47 @@ export default function OffertetoolApp() {
                 Staat standaard uit — zet dit pas aan nadat de tabellen zijn aangemaakt via het eenmalige
                 opzet-endpoint (zie README, sectie "Tarieven-registratie in Dataverse opzetten"), anders mislukt het
                 wegschrijven stil op de achtergrond (net als bij een niet-ingevuld SharePoint-veld).
+              </p>
+            </div>
+
+            <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
+              <span>Tarieven — kolom-koppeling in Dataverse</span>
+            </div>
+            <div className="ot-card" style={{ padding: 24 }}>
+              <p style={{ fontSize: 12.5, color: "#5B6259", margin: "0 0 16px" }}>
+                Bepaalt naar welke kolom van de "Tarief"-tabel (cr283_tarief) het bedrag en de dienstomschrijving
+                worden geschreven. Staat standaard op de kolommen die het opzet-endpoint zelf aanmaakt — pas dit
+                alleen aan als je liever een andere, zelf beheerde kolom gebruikt.
+              </p>
+              <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+                <div style={{ flex: "1 1 220px" }}>
+                  <label className="ot-label">Kolom voor bedrag</label>
+                  <input
+                    type="text"
+                    className="ot-input"
+                    value={tariefKolomMapping.bedragKolom}
+                    onChange={(e) => setTariefKolomMapping((prev) => ({ ...prev, bedragKolom: e.target.value }))}
+                    placeholder={TARIEF_KOLOM_MAPPING_STANDAARD.bedragKolom}
+                  />
+                </div>
+                <div style={{ flex: "1 1 220px" }}>
+                  <label className="ot-label">Kolom voor omschrijving dienst</label>
+                  <input
+                    type="text"
+                    className="ot-input"
+                    value={tariefKolomMapping.omschrijvingKolom}
+                    onChange={(e) => setTariefKolomMapping((prev) => ({ ...prev, omschrijvingKolom: e.target.value }))}
+                    placeholder={TARIEF_KOLOM_MAPPING_STANDAARD.omschrijvingKolom}
+                  />
+                </div>
+              </div>
+              <p style={{ fontSize: 12, color: "#8A9089", margin: "12px 0 0" }}>
+                Gebruik de logische (technische) kolomnaam uit Dataverse, bijv. "cr283_prijs" — niet de weergavenaam.
+                Let op: "cr283_dienstomschrijving" is ook de naamgevende kolom van de Tarief-tabel; deze wordt hoe dan
+                ook altijd gevuld (voor een leesbare recordnaam in Dataverse), ook als je hier een andere kolom kiest
+                — in dat geval krijgt die andere kolom de omschrijving er dan bovenop. Onbekende of foutief
+                overlappende kolomnamen worden bij het wegschrijven genegeerd en dan wordt stilzwijgend teruggevallen
+                op de standaardkolom.
               </p>
             </div>
 
@@ -6843,6 +6928,23 @@ export default function OffertetoolApp() {
                     ondertekenen wordt dit in Dataverse vastgelegd (kenmerk van de vorige koppelen) en worden de nog
                     openstaande tarieven van die vorige opdrachtbevestiging automatisch afgesloten op de looptijd.
                     {opdrachtbevestigingenLijstBezig && " (Lijst wordt geladen…)"}
+                  </p>
+
+                  <label className="ot-label" style={{ marginTop: 16 }}>
+                    Ingangsdatum tarieven (optioneel)
+                  </label>
+                  <input
+                    type="date"
+                    className="ot-input"
+                    value={tariefIngangsdatum}
+                    onChange={(e) => setTariefIngangsdatum(e.target.value)}
+                    style={{ maxWidth: 220 }}
+                  />
+                  <p style={{ fontSize: 12, color: "#8A9089", margin: "10px 0 0" }}>
+                    Leeg = de tarieven gaan in op de datum van ondertekening (zoals voorheen). Vul dit alleen in als
+                    de nieuwe/gewijzigde tarieven op een andere datum in moeten gaan dan de ondertekendatum — bijv. je
+                    tekent vandaag een tariefswijziging die pas per de 1e van volgende maand ingaat. De vorige, nog
+                    openstaande tarieven (bij een herbevestiging hierboven) worden dan afgesloten op de dag ervóór.
                   </p>
                 </div>
 

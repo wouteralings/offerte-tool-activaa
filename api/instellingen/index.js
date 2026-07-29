@@ -69,6 +69,11 @@ const TOEGESTANE_SLEUTELS = new Set([
   // ondertekening van een opdrachtbevestiging — zie api/dataverse-schema-setup en
   // schrijfTarievenNaarDataverse in api/_gedeeld/onboarding.js. Staat standaard uit.
   "tarieven-instellingen-opdrachtbevestiging",
+  // Naar welke kolom van de cr283_tarief-tabel het bedrag en de dienstomschrijving
+  // geschreven worden — zie schrijfTarievenNaarDataverse in api/_gedeeld/onboarding.js.
+  // Standaard cr283_prijs / cr283_dienstomschrijving (de kolommen die
+  // api/dataverse-schema-setup zelf aanmaakt).
+  "tarieven-kolom-mapping",
   "mailtekst-opdrachtbevestiging",
   "inleiding-opdrachtbevestiging",
   // Opdrachtbevestiging heeft alleen een algemene toelichting — géén klantspecifieke/per-dienst
