@@ -1218,6 +1218,12 @@ export default function OffertetoolApp() {
   // en worden de nog openstaande tarieven van die vorige rij afgesloten. Puur functioneel,
   // wél in de snapshot bewaard (zie huidigeOpdrachtbevestigingSnapshot).
   const [herbevestigingVanId, setHerbevestigingVanId] = useState(null);
+  // Status van het automatisch overnemen van diensten bij het kiezen van een herbevestiging
+  // hierboven (zie kiesHerbevestigingVan) — puur voor de meldingen in de UI, niet opgeslagen.
+  const [herbevestigingOvernemenBezig, setHerbevestigingOvernemenBezig] = useState(false);
+  const [herbevestigingOvernemenFout, setHerbevestigingOvernemenFout] = useState(null);
+  const [herbevestigingOvergenomenAantal, setHerbevestigingOvergenomenAantal] = useState(null);
+  const [herbevestigingVerdwenenDiensten, setHerbevestigingVerdwenenDiensten] = useState([]);
   // Optionele ingangsdatum voor de tarieven van deze opdrachtbevestiging (YYYY-MM-DD) — los van
   // de daadwerkelijke ondertekendatum. Leeg = ingangsdatum wordt de ondertekendatum (zoals
   // voorheen). Handig bij een herbevestiging/tariefswijziging die je vandaag ondertekent maar
@@ -1474,6 +1480,76 @@ export default function OffertetoolApp() {
       setStap("opdrachtbevestiging");
     } catch (e) {
       setOpdrachtbevestigingenLijstFout(true);
+    }
+  }
+
+  // Kolomsleutels ("klantId::dienstId") uit een bron-object overnemen, maar alleen die van de
+  // klant(en) die ook daadwerkelijk in dít document gekozen zijn — voorkomt dat overrides voor
+  // een klant die niets met de gekoppelde opdrachtbevestiging te maken heeft, worden overschreven.
+  function sleutelsVoorHuidigeKlanten(bron, klantIds) {
+    const resultaat = {};
+    Object.entries(bron || {}).forEach(([sleutel, waarde]) => {
+      const klantId = sleutel.split("::")[0];
+      if (klantIds.includes(klantId)) resultaat[sleutel] = waarde;
+    });
+    return resultaat;
+  }
+
+  // Leesbare naam voor een dienst-ID uit een oud document terugvinden via de bevroren
+  // regelsPerKlant-snapshot — nodig omdat die dienst inmiddels uit de catalogus verwijderd
+  // kan zijn (dan bestaat dienstenCatalogus.find(...) niet meer, maar de oude naam wel).
+  function naamVoorVerdwenenDienst(snap, dienstId) {
+    const regelsPerKlant = snap.regelsPerKlant || {};
+    for (const regels of Object.values(regelsPerKlant)) {
+      const gevonden = (regels || []).find((r) => r.id === dienstId);
+      if (gevonden) return gevonden.naam;
+    }
+    return dienstId;
+  }
+
+  // Bij het kiezen van een herbevestiging/tariefswijziging (de kiezer op de Opdrachtbevestiging-
+  // stap) worden ook meteen de diensten, aantallen/factoren, gekozen varianten en per-klant
+  // uitschakelingen van dat gekoppelde document overgenomen — zo hoeft dat niet nogmaals
+  // handmatig bij "Diensten kiezen" te gebeuren. Overneemt bewust NIET de bevroren
+  // aangepastePrijzen van dat oude document: bij een herbevestiging/tariefswijziging gelden de
+  // huidige catalogusprijzen, niet de prijzen van destijds. Diensten die inmiddels uit de
+  // catalogus zijn verwijderd, worden overgeslagen (en apart gemeld) i.p.v. als "onzichtbare"
+  // selectie te blijven hangen. Bestaande keuzes voor andere diensten/klanten in dít document
+  // blijven staan — dit overschrijft alleen wat het gekoppelde document ook daadwerkelijk had.
+  async function kiesHerbevestigingVan(id) {
+    setHerbevestigingVanId(id || null);
+    setHerbevestigingOvernemenFout(null);
+    setHerbevestigingOvergenomenAantal(null);
+    setHerbevestigingVerdwenenDiensten([]);
+    if (!id) return;
+
+    setHerbevestigingOvernemenBezig(true);
+    try {
+      const record = await opdrachtbevestigingOphalen(id);
+      const snap = record.data || {};
+      const klantIds = gekozenKlanten.map((k) => k.id);
+
+      const bronGeselecteerd = snap.geselecteerd || {};
+      const bestaandeEntries = {};
+      const verdwenenNamen = [];
+      Object.entries(bronGeselecteerd).forEach(([dienstId, waarde]) => {
+        if (dienstenCatalogus.some((d) => d.id === dienstId)) {
+          bestaandeEntries[dienstId] = waarde;
+        } else {
+          verdwenenNamen.push(naamVoorVerdwenenDienst(snap, dienstId));
+        }
+      });
+
+      setGeselecteerd((prev) => ({ ...prev, ...bestaandeEntries }));
+      setKlantVarianten((prev) => ({ ...prev, ...sleutelsVoorHuidigeKlanten(snap.klantVarianten, klantIds) }));
+      setUitgeschakeldVoorKlant((prev) => ({ ...prev, ...sleutelsVoorHuidigeKlanten(snap.uitgeschakeldVoorKlant, klantIds) }));
+
+      setHerbevestigingOvergenomenAantal(Object.keys(bestaandeEntries).length);
+      setHerbevestigingVerdwenenDiensten(verdwenenNamen);
+    } catch (e) {
+      setHerbevestigingOvernemenFout("Overnemen van diensten is mislukt — kies eventueel opnieuw, of vink de diensten handmatig aan bij \"Diensten kiezen\".");
+    } finally {
+      setHerbevestigingOvernemenBezig(false);
     }
   }
 
@@ -7682,7 +7758,8 @@ export default function OffertetoolApp() {
                   <select
                     className="ot-input"
                     value={herbevestigingVanId || ""}
-                    onChange={(e) => setHerbevestigingVanId(e.target.value || null)}
+                    onChange={(e) => kiesHerbevestigingVan(e.target.value)}
+                    disabled={herbevestigingOvernemenBezig}
                   >
                     <option value="">Geen — dit is een nieuwe, losstaande opdrachtbevestiging</option>
                     {opdrachtbevestigingenLijst
@@ -7698,9 +7775,33 @@ export default function OffertetoolApp() {
                   <p style={{ fontSize: 12, color: "#8A9089", margin: "10px 0 0" }}>
                     Kies hier de eerder ondertekende opdrachtbevestiging die deze vervangt/verlengt/wijzigt. Bij het
                     ondertekenen wordt dit in Dataverse vastgelegd (kenmerk van de vorige koppelen) en worden de nog
-                    openstaande tarieven van die vorige opdrachtbevestiging automatisch afgesloten op de looptijd.
+                    openstaande tarieven van die vorige opdrachtbevestiging automatisch afgesloten op de looptijd. De
+                    diensten, aantallen/factoren, varianten en per-klant uitschakelingen van dat document worden
+                    hierbij automatisch overgenomen (tegen de huidige catalogusprijzen, niet de prijzen van destijds)
+                    — pas dit hieronder bij "Diensten kiezen" zo nodig verder aan.
                     {opdrachtbevestigingenLijstBezig && " (Lijst wordt geladen…)"}
                   </p>
+                  {herbevestigingOvernemenBezig && (
+                    <p style={{ fontSize: 12.5, color: "#5B6259", margin: "10px 0 0" }}>Diensten overnemen…</p>
+                  )}
+                  {herbevestigingOvernemenFout && (
+                    <p style={{ fontSize: 12.5, color: "#B3261E", margin: "10px 0 0" }}>{herbevestigingOvernemenFout}</p>
+                  )}
+                  {!herbevestigingOvernemenBezig && !herbevestigingOvernemenFout && herbevestigingOvergenomenAantal !== null && (
+                    <p style={{ fontSize: 12.5, color: "#2E7D4F", margin: "10px 0 0" }}>
+                      ✓ {herbevestigingOvergenomenAantal}{" "}
+                      {herbevestigingOvergenomenAantal === 1 ? "dienst" : "diensten"} overgenomen van de gekozen
+                      opdrachtbevestiging, tegen de huidige tarieven.
+                    </p>
+                  )}
+                  {herbevestigingVerdwenenDiensten.length > 0 && (
+                    <p style={{ fontSize: 12.5, color: "#8A6A1E", margin: "6px 0 0" }}>
+                      ⚠ {herbevestigingVerdwenenDiensten.length === 1 ? "Deze dienst bestaat" : "Deze diensten bestaan"}{" "}
+                      niet meer in de catalogus en{" "}
+                      {herbevestigingVerdwenenDiensten.length === 1 ? "is niet overgenomen" : "zijn niet overgenomen"}:{" "}
+                      {herbevestigingVerdwenenDiensten.join(", ")}.
+                    </p>
+                  )}
 
                   <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 16 }}>
                     <div>
